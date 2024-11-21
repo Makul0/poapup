@@ -6,7 +6,7 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
-
+ 
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
  
@@ -72,24 +72,5 @@
   }
   body {
     @apply bg-background text-foreground;
-  }
-}
-
-/* Custom styles for animations */
-.animate-gradient {
-  background-size: 400%;
-  -webkit-animation: gradient 15s ease infinite;
-  animation: gradient 15s ease infinite;
-}
-
-@keyframes gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
   }
 }

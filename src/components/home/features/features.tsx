@@ -2,8 +2,8 @@
 
 import { motion } from 'framer-motion'
 import { 
-  CollectionIcon, 
-  ShieldCheckIcon, 
+  Square3Stack3DIcon as CollectionIcon,
+  ShieldCheckIcon,
   SparklesIcon,
   TrophyIcon 
 } from '@heroicons/react/24/outline'

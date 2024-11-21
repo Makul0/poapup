@@ -1,8 +1,7 @@
-import { WalletProvider } from '@/components/common/WalletProvider'
-import { Layout } from '@/components/common/Layout'
-
 import '@/styles/globals.css'
 import { Inter } from 'next/font/google'
+import { WalletProvider } from '@/components/common/WalletProvider'
+import { Header } from '@/components/common/Header'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -17,12 +16,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <WalletProvider>
-          <Layout>
-            {children}
-          </Layout>
+          <div className="relative min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-1">
+              {children}
+            </main>
+          </div>
         </WalletProvider>
       </body>
     </html>
