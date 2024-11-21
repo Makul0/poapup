@@ -1,118 +1,245 @@
 'use client'
 
-//import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@tiplink/wallet-adapter-react-ui'
-import { Disclosure } from '@headlessui/react'
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline'
+import { Popover, Transition } from '@headlessui/react'
+import { ChevronDownIcon } from '@heroicons/react/20/solid'
 import { cn } from '@/utils/cn'
 
-// Navigation items
-const navigation = [
-  { name: 'Home', href: '/' },
-  { name: 'Events', href: '/events' },
-  { name: 'Rankings', href: '/collectors/rankings' },
-  { name: 'Docs', href: '/docs' },
-]
+const navigation = {
+  events: [
+    { name: 'Recent Events', href: '/events/recent' },
+    { name: 'Breakpoint', href: '/events/breakpoint' },
+    { name: 'Hacker Houses', href: '/events/hackerhouses' },
+    { name: 'Ecosystem Calls', href: '/events/ecosystem' },
+  ],
+  creators: [
+    { name: 'Create Collection', href: '/creators/create' },
+    { name: 'Learn', href: '/creators/learn' },
+    { name: 'Top Creators', href: '/creators/top' },
+  ],
+  collectors: [
+    { name: 'Rankings', href: '/collectors/rankings' },
+    { name: 'My Collections', href: '/collectors/profile' },
+  ],
+}
 
-const walletNavigation = [
-  { name: 'My Collections', href: '/collectors/profile' },
-  { name: 'Create POAP', href: '/creators/create' },
-]
-
-export function Header() {
+function NavPopover({ title, items }: { title: string; items: { name: string; href: string }[] }) {
   const pathname = usePathname()
-  const { connected } = useWallet()
-
-  // Combine navigation based on wallet connection
-  const allNavigation = [...navigation, ...(connected ? walletNavigation : [])]
-
+  
   return (
-    <Disclosure as="nav" className="bg-white shadow dark:bg-gray-900">
+    <Popover className="relative">
       {({ open }) => (
         <>
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="flex h-16 justify-between">
-              {/* Desktop navigation */}
-              <div className="flex">
-                <div className="flex flex-shrink-0 items-center">
-                  <Link 
-                    href="/"
-                    className="text-xl font-bold text-indigo-600 dark:text-indigo-400"
-                  >
-                    POAPup
-                  </Link>
-                </div>
-                <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                  {allNavigation.map((item) => {
-                    const isActive = pathname === item.href
-                    return (
-                      <Link
-                        key={item.name}
-                        href={item.href}
-                        className={cn(
-                          'inline-flex items-center px-1 pt-1 text-sm font-medium',
-                          isActive
-                            ? 'border-b-2 border-indigo-500 text-gray-900 dark:text-white'
-                            : 'border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white'
-                        )}
-                      >
-                        {item.name}
-                      </Link>
-                    )
-                  })}
+          <Popover.Button
+            className={cn(
+              'group inline-flex items-center px-3 py-2 text-sm font-medium outline-none',
+              'text-gray-700 hover:text-gray-900',
+              open && 'text-gray-900'
+            )}
+          >
+            <span>{title}</span>
+            <ChevronDownIcon
+              className={cn(
+                'ml-2 h-4 w-4 transition-transform duration-200',
+                open && 'rotate-180'
+              )}
+              aria-hidden="true"
+            />
+          </Popover.Button>
+
+          <Transition
+            as={Fragment}
+            enter="transition ease-out duration-200"
+            enterFrom="opacity-0 translate-y-1"
+            enterTo="opacity-100 translate-y-0"
+            leave="transition ease-in duration-150"
+            leaveFrom="opacity-100 translate-y-0"
+            leaveTo="opacity-0 translate-y-1"
+          >
+            <Popover.Panel className="absolute left-1/2 z-10 mt-3 w-40 -translate-x-1/2 transform">
+              <div className="overflow-hidden rounded-lg shadow-lg ring-1 ring-black ring-opacity-5">
+                <div className="relative bg-white">
+                  {items.map((item) => (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        'block px-4 py-2 text-sm hover:bg-gray-50',
+                        pathname === item.href ? 'text-blue-600' : 'text-gray-700'
+                      )}
+                    >
+                      {item.name}
+                    </Link>
+                  ))}
                 </div>
               </div>
+            </Popover.Panel>
+          </Transition>
+        </>
+      )}
+    </Popover>
+  )
+}
 
-              {/* Right side actions */}
-              <div className="hidden sm:ml-6 sm:flex sm:items-center">
-                <WalletMultiButton />
-              </div>
+function MobileMenu({ 
+  isOpen, 
+  setIsOpen 
+}: { 
+  isOpen: boolean
+  setIsOpen: (value: boolean) => void 
+}) {
+  const pathname = usePathname()
 
-              {/* Mobile menu button */}
-              <div className="flex items-center sm:hidden">
-                <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-gray-800">
-                  <span className="sr-only">Open main menu</span>
-                  {open ? (
-                    <XMarkIcon className="block h-6 w-6" aria-hidden="true" />
-                  ) : (
-                    <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
+  return (
+    <Transition
+      show={isOpen}
+      as={Fragment}
+      enter="transition ease-out duration-200"
+      enterFrom="opacity-0 -translate-y-1"
+      enterTo="opacity-100 translate-y-0"
+      leave="transition ease-in duration-150"
+      leaveFrom="opacity-100 translate-y-0"
+      leaveTo="opacity-0 -translate-y-1"
+    >
+      <div className="absolute inset-x-0 top-full mt-px bg-white pb-3 shadow-lg">
+        <div className="space-y-3">
+          {/* Events Section */}
+          <div className="px-4">
+            <div className="text-xs font-semibold text-gray-400">Events</div>
+            <div className="mt-2 space-y-2">
+              {navigation.events.map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    'block text-sm',
+                    pathname === item.href ? 'text-blue-600' : 'text-gray-700'
                   )}
-                </Disclosure.Button>
-              </div>
+                  onClick={() => setIsOpen(false)}
+                >
+                  {item.name}
+                </Link>
+              ))}
             </div>
           </div>
 
-          {/* Mobile menu */}
-          <Disclosure.Panel className="sm:hidden">
-            <div className="space-y-1 pb-3 pt-2">
-              {allNavigation.map((item) => {
-                const isActive = pathname === item.href
-                return (
-                  <Disclosure.Button
-                    key={item.name}
-                    as={Link}
-                    href={item.href}
-                    className={cn(
-                      'block py-2 pl-3 pr-4 text-base font-medium',
-                      isActive
-                        ? 'border-l-4 border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300'
-                        : 'border-l-4 border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white'
-                    )}
-                  >
-                    {item.name}
-                  </Disclosure.Button>
-                )
-              })}
-              <div className="px-4 py-3">
-                <WalletMultiButton />
-              </div>
+          {/* Creators Section */}
+          <div className="px-4">
+            <div className="text-xs font-semibold text-gray-400">Creators</div>
+            <div className="mt-2 space-y-2">
+              {navigation.creators.map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    'block text-sm',
+                    pathname === item.href ? 'text-blue-600' : 'text-gray-700'
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  {item.name}
+                </Link>
+              ))}
             </div>
-          </Disclosure.Panel>
-        </>
-      )}
-    </Disclosure>
+          </div>
+
+          {/* Collectors Section */}
+          <div className="px-4">
+            <div className="text-xs font-semibold text-gray-400">Collectors</div>
+            <div className="mt-2 space-y-2">
+              {navigation.collectors.map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    'block text-sm',
+                    pathname === item.href ? 'text-blue-600' : 'text-gray-700'
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  {item.name}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Docs Link */}
+          <div className="px-4">
+            <Link
+              href="/docs"
+              className="block text-sm text-gray-700"
+              onClick={() => setIsOpen(false)}
+            >
+              Docs
+            </Link>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  )
+}
+
+export function Header() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { connected } = useWallet()
+  const pathname = usePathname()
+
+  return (
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur">
+      <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center">
+            <span className="text-xl font-bold text-gray-900">POAPup</span>
+          </Link>
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex md:gap-2">
+            <NavPopover title="Events" items={navigation.events} />
+            <NavPopover title="Creators" items={navigation.creators} />
+            <NavPopover title="Collectors" items={navigation.collectors} />
+            <Link
+              href="/docs"
+              className={cn(
+                'inline-flex items-center px-3 py-2 text-sm font-medium',
+                'text-gray-700 hover:text-gray-900',
+                pathname === '/docs' && 'text-blue-600'
+              )}
+            >
+              Docs
+            </Link>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Wallet Button */}
+          <WalletMultiButton />
+
+          {/* Mobile menu button */}
+          <button
+            type="button"
+            className="md:hidden -m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            <span className="sr-only">Toggle main menu</span>
+            {mobileMenuOpen ? (
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile menu */}
+      <MobileMenu isOpen={mobileMenuOpen} setIsOpen={setMobileMenuOpen} />
+    </header>
   )
 }

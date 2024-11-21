@@ -4,15 +4,13 @@ const nextConfig = {
     domains: ['images.unsplash.com', 'api.placeholder.com'],
   },
   experimental: {
-    // Properly configure turbo
     turbo: {
       rules: {
-        // Configure any specific rules here
       },
     },
   },
   webpack: (config) => {
-    config.externals.push('pino-pretty', 'lokijs', 'encoding');
+    config.externals.push('pino-pretty', 'lokijs', 'encoding', 'bigint');
     return config;
   },
 }

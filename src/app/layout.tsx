@@ -19,11 +19,9 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <WalletProvider>
-          <div className="relative min-h-screen flex flex-col">
+          <div className="min-h-screen flex flex-col bg-background">
             <Header />
-            <main className="flex-1">
-              {children}
-            </main>
+            <main className="flex-1">{children}</main>
           </div>
         </WalletProvider>
       </body>

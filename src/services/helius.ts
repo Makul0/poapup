@@ -1,5 +1,7 @@
-const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY
-const HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+import { Helius } from 'helius-sdk';
+
+const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY as string;
+const helius = new Helius(HELIUS_API_KEY);
 
 export type AssetWithOwner = {
   id: string;
@@ -15,126 +17,13 @@ export type AssetWithOwner = {
   };
 };
 
-export async function getAssetsByAuthority(authority: string): Promise<AssetWithOwner[]> {
-  try {
-    const response = await fetch(HELIUS_RPC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'my-id',
-        method: 'getAssetsByAuthority',
-        params: [
-          authority,
-          {
-            page: 1,
-            limit: 1000,
-            before: "",
-            after: "",
-            sortBy: "created",
-            sortDirection: "desc",
-            displayOptions: {
-              showCollectionMetadata: true,
-              showNativeBalance: true,
-              showUnverifiedCollections: true,
-              showFungible: false,
-              showInscription: false,
-            }
-          }
-        ],
-      }),
-    });
-    
-    const data = await response.json();
-    
-    if (data?.error) {
-      console.error('Helius API error:', data.error);
-      return [];
-    }
-
-    if (!data?.result?.items) {
-      console.log('No assets found or invalid response:', data);
-      return [];
-    }
-
-    return data.result.items;
-  } catch (error) {
-    console.error('Error fetching assets:', error);
-    return [];
-  }
-}
-
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function getAssetsByCreator(creator: string): Promise<AssetWithOwner[]> {
-  try {
-    await delay(1000);
-
-    const response = await fetch(HELIUS_RPC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'my-id',
-        method: 'getAssetsByCreator',
-        params: [
-          creator,
-          {
-            page: 1,
-            limit: 1000,
-            before: "",
-            after: "",
-            sortBy: "created",
-            sortDirection: "desc",
-            displayOptions: {
-              showCollectionMetadata: true,
-              showNativeBalance: true,
-              showUnverifiedCollections: true,
-              showFungible: false,
-              showInscription: false,
-            }
-          }
-        ],
-      }),
-    });
-    
-    const data = await response.json();
-    
-    if (data?.error) {
-      console.error('Helius API error:', data.error);
-      return [];
-    }
-
-    return data.result?.items || [];
-  } catch (error) {
-    console.error('Error fetching assets:', error);
-    return [];
-  }
-}
-
-// Add types for Helius API responses
-export type HeliusResponse<T> = {
-  jsonrpc: '2.0';
-  result?: T;
-  error?: {
-    code: number;
-    message: string;
-  };
-  id: string;
-};
-
-export type HeliusAssetList = {
-  items: AssetWithOwner[];
-  total: number;
-  limit: number;
-  page: number;
-};
-
-// Add rate limiting helper
+// Rate limiter class
 export class RateLimiter {
-  private queue: Array<() => Promise<any>> = [];
+  private queue: Array<() => Promise<unknown>> = [];
   private processing = false;
   private rateLimit: number;
   private interval: number;
@@ -149,7 +38,7 @@ export class RateLimiter {
       this.queue.push(async () => {
         try {
           const result = await fn();
-          resolve(result);
+          resolve(result as T);
         } catch (error) {
           reject(error);
         }
@@ -161,7 +50,7 @@ export class RateLimiter {
     });
   }
 
-  private async process() {
+  private async process(): Promise<void> {
     this.processing = true;
 
     while (this.queue.length > 0) {
@@ -176,5 +65,42 @@ export class RateLimiter {
   }
 }
 
-// Create a global rate limiter instance
-export const heliusRateLimiter = new RateLimiter(5, 1000); // 5 requests per second
+// Global rate limiter instance
+export const heliusRateLimiter = new RateLimiter(5, 1000);
+
+export async function getAllAssetsByAuthority(authority: string): Promise<AssetWithOwner[]> {
+  try {
+    let allAssets: AssetWithOwner[] = [];
+    let page = 1;
+    const limit = 1000;
+
+    while (true) {
+      const response = await helius.rpc.getAssetsByAuthority({
+        authorityAddress: authority,
+        page,
+        limit,
+        displayOptions: {
+          showCollectionMetadata: true,
+          showUnverifiedCollections: true,
+          showNativeBalance: true,
+          showFungible: false,
+          showInscription: false,
+        },
+      });
+
+      if (!response?.items?.length) break;
+
+      allAssets = [...allAssets, ...response.items];
+      
+      if (response.items.length < limit) break;
+      
+      page++;
+      await delay(200); // Rate limiting delay
+    }
+
+    return allAssets;
+  } catch (error) {
+    console.error('Error fetching all assets:', error);
+    return [];
+  }
+}
