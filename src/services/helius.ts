@@ -84,14 +84,25 @@ export async function getAllAssetsByAuthority(authority: string): Promise<AssetW
           showUnverifiedCollections: true,
           showNativeBalance: true,
           showFungible: false,
-          showInscription: false,
         },
       });
 
       if (!response?.items?.length) break;
 
-      allAssets = [...allAssets, ...response.items];
-      
+      allAssets = [...allAssets, ...response.items.map(item => ({
+        id: item.id,
+        interface: item.interface,
+        ownerAddress: item.ownership.owner,
+        compression: {
+          compressed: item.compression?.compressed ?? false
+        },
+        content: {
+          metadata: {
+            name: item.content?.metadata?.name || '',
+            symbol: item.content?.metadata?.symbol || ''
+          }
+        }
+      }))];
       if (response.items.length < limit) break;
       
       page++;

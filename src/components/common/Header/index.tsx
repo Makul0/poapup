@@ -185,7 +185,7 @@ function MobileMenu({
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { connected } = useWallet()
+  useWallet()
   const pathname = usePathname()
 
   return (
