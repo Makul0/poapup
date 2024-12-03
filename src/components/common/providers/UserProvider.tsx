@@ -5,12 +5,13 @@ import { WalletProvider } from '@solana/wallet-adapter-react'
 import { TipLinkWalletAdapter } from "@tiplink/wallet-adapter"
 import { WalletModalProvider } from '@tiplink/wallet-adapter-react-ui'
 import { useMemo } from 'react'
-import { UserProvider as AuthProvider } from '@/contexts/UserContext'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { UserProvider } from '@/contexts/UserContext'
 import { ToastProvider } from '@/hooks/useToast'
 
 import '@tiplink/wallet-adapter-react-ui/styles.css'
 
-const ClientProviders = dynamic(
+const ClientWalletProvider = dynamic(
   () => Promise.resolve(({ children }: { children: React.ReactNode }) => {
     const wallets = useMemo(() => [
       new TipLinkWalletAdapter({ 
@@ -23,20 +24,24 @@ const ClientProviders = dynamic(
     return (
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
-          <AuthProvider>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
-          </AuthProvider>
+          {children}
         </WalletModalProvider>
       </WalletProvider>
     )
   }),
-  {
-    ssr: false
-  }
+  { ssr: false }
 )
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <ClientProviders>{children}</ClientProviders>
+  return (
+    <ClientWalletProvider>
+      <AuthProvider>
+        <UserProvider>
+          <ToastProvider>
+            {children}
+          </ToastProvider>
+        </UserProvider>
+      </AuthProvider>
+    </ClientWalletProvider>
+  )
 }

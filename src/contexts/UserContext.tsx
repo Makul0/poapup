@@ -28,61 +28,66 @@ interface UserContextValue {
 const UserContext = createContext<UserContextValue | undefined>(undefined)
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
- const { connected, publicKey, signMessage, disconnect } = useWallet()
- const { showToast } = useToast()
- 
- const [isLoading, setIsLoading] = useState(true)
- const [user, setUser] = useState<UserProfile | null>(null)
+  const { connected, publicKey, signMessage, disconnect } = useWallet()
+  const { showToast } = useToast()
+  
+  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<UserProfile | null>(null)
 
- const login = useCallback(async () => {
-   if (!connected || !publicKey || !signMessage) {
-     throw new Error('Wallet not connected')
-   }
+  const login = useCallback(async () => {
+    if (!connected || !publicKey || !signMessage) {
+      throw new Error('Wallet not connected')
+    }
 
-   try {
-     setIsLoading(true)
-     
-     const message = new TextEncoder().encode(
-       `Sign this message to authenticate with POAPup\nTimestamp: ${Date.now()}`
-     )
+    try {
+      setIsLoading(true)
+      
+      const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map(n => n.toString(16).padStart(2, '0'))
+        .join('')
+        
+      const message = new TextEncoder().encode(
+        `Sign this message to authenticate with POAPup\nNonce: ${nonce}\nTimestamp: ${Date.now()}`
+      )
 
-     const signature = await signMessage(message)
-     const wallet = publicKey.toString()
+      const signature = await signMessage(message)
+      const wallet = publicKey.toString()
 
-     const response = await fetch('/api/auth/login', {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({
-         wallet,
-         signature: Array.from(signature)
-       })
-     })
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet,
+          signature: Array.from(signature),
+          nonce
+        })
+      })
 
-     if (!response.ok) {
-       throw new Error('Authentication failed')
-     }
+      if (!response.ok) {
+        throw new Error(await response.text() || 'Authentication failed')
+      }
 
-     const userData = await response.json()
-     setUser(userData)
-     localStorage.setItem(`poapup_user_${wallet}`, JSON.stringify(userData))
+      const userData = await response.json()
+      setUser(userData)
+      localStorage.setItem(`poapup_user_${wallet}`, JSON.stringify(userData))
 
-     showToast({
-       title: 'Welcome!',
-       description: 'Successfully authenticated.',
-       type: 'success'
-     })
-   } catch (error) {
-     console.error('Login error:', error)
-     showToast({
-       title: 'Authentication Failed',
-       description: 'Please try again',
-       type: 'error'
-     })
-     throw error
-   } finally {
-     setIsLoading(false)
-   }
- }, [connected, publicKey, signMessage, showToast])
+      showToast({
+        title: 'Welcome!',
+        description: 'Successfully authenticated.',
+        type: 'success'
+      })
+    } catch (error) {
+      console.error('Login error:', error)
+      showToast({
+        title: 'Authentication Failed',
+        description: error instanceof Error ? error.message : 'Please try again',
+        type: 'error'
+      })
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [connected, publicKey, signMessage, showToast])
 
  const loadUser = useCallback(async () => {
    if (connected && publicKey) {
@@ -147,6 +152,41 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
  useEffect(() => {
    loadUser()
  }, [loadUser])
+
+ useEffect(() => {
+  const handleAuth = async () => {
+    if (connected && publicKey) {
+      try {
+        setIsLoading(true)
+        const stored = localStorage.getItem(`poapup_user_${publicKey.toString()}`)
+        
+        if (stored) {
+          const userData = JSON.parse(stored)
+          if (userData.wallet === publicKey.toString()) {
+            setUser(userData)
+            setIsLoading(false)
+            return
+          }
+        }
+        
+        await login()
+      } catch (error) {
+        console.error('Failed to load user:', error)
+        if (publicKey) {
+          localStorage.removeItem(`poapup_user_${publicKey.toString()}`)
+        }
+        setUser(null)
+      } finally {
+        setIsLoading(false)
+      }
+    } else {
+      setUser(null)
+      setIsLoading(false)
+    }
+  }
+
+  handleAuth()
+}, [connected, publicKey, login])
 
  return (
    <UserContext.Provider

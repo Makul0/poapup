@@ -1,6 +1,6 @@
-// src/app/creators/create/page.tsx
 'use client'
 
+import { useWallet } from '@solana/wallet-adapter-react'
 import { useCreatePOAP } from '@/hooks/useCreatePOAP'
 import { ImageUploader } from './image-uploader'
 import { DateTimeRangePicker } from './datetime-range-picker'
@@ -8,18 +8,22 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { POAPMetadata } from '@/services/poap'
 import { useUser } from '@/contexts/UserContext'
+import { ConnectWalletButton } from '@/components/common/ConnectWalletButton'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function CreateCollectionPage() {
   const router = useRouter()
-  const { user } = useUser()
+  const { publicKey, connected } = useWallet()
+  const { user, isLoading } = useUser()
   const { createPOAP, validateMetadata, isCreating } = useCreatePOAP()
+  const { login } = useAuth()
 
   const [formData, setFormData] = useState<POAPMetadata>({
     title: '',
     description: '',
     url: '',
     startDate: new Date(),
-    endDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
+    endDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
     eventType: 'VIRTUAL',
     maxAttendees: 100,
     isPublic: true,
@@ -43,6 +47,26 @@ export default function CreateCollectionPage() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    )
+  }
+
+  if (!connected || !publicKey) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <h1 className="text-2xl font-bold mb-4">Connect Your Wallet</h1>
+        <p className="text-gray-600 mb-8">
+          Please connect your wallet to create POAPs
+        </p>
+        <ConnectWalletButton />
+      </div>
+    )
+  }
+
   if (!user?.wallet) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -50,6 +74,23 @@ export default function CreateCollectionPage() {
           <h1 className="text-2xl font-bold mb-4">Connect Wallet</h1>
           <p className="text-gray-600">Please connect your wallet to create POAPs</p>
         </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <h1 className="text-2xl font-bold mb-4">Authentication Required</h1>
+        <p className="text-gray-600 mb-8">
+          Please sign the message to authenticate
+        </p>
+        <button
+          onClick={login}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Authenticate
+        </button>
       </div>
     )
   }

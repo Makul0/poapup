@@ -1,32 +1,21 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { useCallback, useMemo } from 'react'
 
 export function useWalletStatus() {
-  const { connected, publicKey, connecting, disconnecting, disconnect } = useWallet()
+  const { connected, connecting, publicKey } = useWallet()
+  const [mounted, setMounted] = useState(false)
 
-  const walletAddress = useMemo(() => {
-    if (!publicKey) return null
-    const address = publicKey.toBase58()
-    return {
-      full: address,
-      shortened: `${address.slice(0, 4)}...${address.slice(-4)}`,
-    }
-  }, [publicKey])
-
-  const handleDisconnect = useCallback(async () => {
-    try {
-      await disconnect()
-    } catch (error) {
-      console.error('Failed to disconnect wallet:', error)
-    }
-  }, [disconnect])
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return {
-    isConnected: connected,
+    isReady: mounted,
     isConnecting: connecting,
-    isDisconnecting: disconnecting,
-    publicKey,
-    walletAddress,
-    disconnect: handleDisconnect,
+    isConnected: mounted && connected,
+    publicKey: publicKey?.toString(),
+    walletAddress: publicKey?.toString(),
   }
 }
