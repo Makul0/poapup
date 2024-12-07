@@ -140,7 +140,7 @@ export function extractBearerToken(authHeader?: string): string {
  */
 export async function requireAuth(req: Request) {
   try {
-    const authHeader = req.headers.get('authorization')
+    const authHeader = req.headers.get('authorization') || undefined
     const token = extractBearerToken(authHeader)
     const session = verifySession(token)
     return session

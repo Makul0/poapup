@@ -19,7 +19,7 @@ export function WalletStatus() {
 
   return (
     <div className="text-sm text-gray-500">
-      Connected: {walletAddress?.shortened}
+      Connected: {walletAddress?.slice(0, 4)}...{walletAddress?.slice(-4)}
     </div>
   )
 }
