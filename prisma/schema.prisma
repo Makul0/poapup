@@ -1,11 +1,11 @@
 // prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
 }
 
 // Collection model represents POAP collections 
@@ -24,7 +24,7 @@ model Collection {
   website       String?
   twitter       String?
   discord       String?
-  logo          String? // IPFS URI
+  logo          String? // IPFS/Arweave URI
 
   // Collection stats
   totalPoaps     Int      @default(0)
@@ -61,7 +61,7 @@ model Event {
 
   // Event metadata
   website     String?
-  coverImage  String? // IPFS URI
+  coverImage  String? // IPFS/Arweave URI
 
   // Event status
   isActive    Boolean  @default(true)
@@ -85,7 +85,7 @@ model Poap {
   // POAP details
   name        String
   description String?
-  image       String   // IPFS URI
+  image       String   // IPFS/Arweave URI
   assetId     String   @unique // Solana Asset ID
   mintAddress String   @unique // Solana mint address
 

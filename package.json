@@ -7,7 +7,11 @@
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next node_modules/.cache",
-    "build": "pnpm run clean && next build"
+    "build": "pnpm run clean && next build",
+    "db:setup": "tsx scripts/setup-database.ts",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:reset": "prisma migrate reset && npm run db:setup"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
