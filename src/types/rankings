@@ -1,0 +1,61 @@
+// src/types/rankings.ts
+import type { Collection, Event, Poap, PoapHolder } from '@prisma/client'
+
+export interface CollectionWithRelations extends Collection {
+  events: (Event & {
+    poaps: (Poap & {
+      holders: PoapHolder[]
+    })[]
+  })[]
+  poaps: (Poap & {
+    holders: PoapHolder[]
+  })[]
+}
+
+export interface RankingStats {
+  totalPoaps: number
+  uniqueEvents: number
+  mostActiveMonth: string
+  topCollectors: Array<{
+    wallet: string
+    count: number
+    rank?: number
+  }>
+}
+
+export interface PoapData {
+  id: string
+  name: string
+  description: string | null
+  image: string
+  collectors: number
+  mintDate: Date
+}
+
+export interface EventGroup {
+  id: string
+  name: string
+  startDate: Date
+  endDate: Date
+  poaps: PoapData[]
+  totalPoaps: number
+  uniqueCollectors: number
+}
+
+export interface CollectionGroup {
+  id: string
+  name: string
+  description: string | null
+  mintAuthority: string
+  events: EventGroup[]
+  stats: RankingStats
+}
+
+export interface RankingsResult {
+  groups: CollectionGroup[]
+  pagination: {
+    currentPage: number
+    hasMore: boolean
+    totalPages?: number
+  }
+}
