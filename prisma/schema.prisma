@@ -1,56 +1,159 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
+// prisma/schema.prisma
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Collection model represents POAP collections 
+model Collection {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Collection details
+  name          String
+  description   String?
+  mintAuthority String  @unique // Solana public key
+  isOfficial    Boolean @default(false)
+  
+  // Collection metadata
+  website       String?
+  twitter       String?
+  discord       String?
+  logo          String? // IPFS URI
+
+  // Collection stats
+  totalPoaps     Int      @default(0)
+  uniqueHolders  Int      @default(0)
+  lastEventDate  DateTime?
+  isActive       Boolean  @default(true)
+
+  // Collection verification
+  verifiedAt    DateTime?
+  verifiedBy    String?   // Admin wallet that verified
+
+  // Relationships
+  poaps         Poap[]         // All POAPs in collection
+  events        Event[]        // Events in this collection
+  creatorAccess CreatorAccess[]
+
+  @@index([mintAuthority])
+}
+
+// Event model represents individual POAP events
 model Event {
-  id                  String   @id @default(cuid())
-  creatorAddress      String
-  title              String
-  description        String?
-  website            String?
-  eventType          String
-  startTime          DateTime
-  endTime            DateTime
-  maxAttendees       Int
-  isPublic           Boolean  @default(true)
-  merkleTreeAddress  String
-  collectionAddress  String
-  createdAt          DateTime @default(now())
-  poaps              Poap[]
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@index([creatorAddress])
+  // Event details
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  eventType   EventType @default(VIRTUAL)
+  location    String?
+  maxSupply   Int?
+
+  // Event metadata
+  website     String?
+  coverImage  String? // IPFS URI
+
+  // Event status
+  isActive    Boolean  @default(true)
+  isClosed    Boolean  @default(false)
+  
+  // Relationships
+  collection  Collection @relation(fields: [collectionId], references: [id])
+  collectionId String
+  poaps       Poap[]
+
+  @@index([startDate, endDate])
+  @@index([collectionId])
 }
 
-model Collector {
-  address         String   @id
-  totalPoaps      Int      @default(0)
-  rank            Int?
-  firstPoapDate   DateTime?
-  lastPoapDate    DateTime?
-  poaps           Poap[]
-}
-
-model Creator {
-  address          String   @id
-  totalEvents      Int      @default(0)
-  totalPoapsIssued Int      @default(0)
-  createdAt        DateTime @default(now())
-}
-
+// POAP model represents individual POAPs
 model Poap {
-  id              String    @id @default(cuid())
-  eventId         String
-  assetId         String
-  collectorAddress String
-  claimedAt       DateTime  @default(now())
-  event           Event     @relation(fields: [eventId], references: [id])
-  collector       Collector @relation(fields: [collectorAddress], references: [address])
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  // POAP details
+  name        String
+  description String?
+  image       String   // IPFS URI
+  assetId     String   @unique // Solana Asset ID
+  mintAddress String   @unique // Solana mint address
+
+  // POAP status
+  isBurned    Boolean  @default(false)
+  isFrozen    Boolean  @default(false)
+
+  // Relationships
+  collection  Collection @relation(fields: [collectionId], references: [id])
+  collectionId String
+  event       Event      @relation(fields: [eventId], references: [id])
+  eventId     String
+  holders     PoapHolder[]
+
+  @@index([collectionId])
   @@index([eventId])
-  @@index([collectorAddress])
+  @@index([assetId])
+}
+
+// PoapHolder tracks POAP ownership
+model PoapHolder {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Holder details
+  walletAddress String
+  acquiredAt    DateTime @default(now())
+
+  // Relationships
+  poap         Poap     @relation(fields: [poapId], references: [id])
+  poapId       String
+
+  @@unique([poapId, walletAddress])
+  @@index([walletAddress])
+}
+
+// CreatorAccess manages collection creator permissions
+model CreatorAccess {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Creator details
+  walletAddress String
+  role         CreatorRole @default(CREATOR)
+  isActive     Boolean     @default(true)
+
+  // Access scope
+  canCreateEvents Boolean @default(true)
+  canMintPoaps   Boolean @default(true)
+  canEditDetails Boolean  @default(false)
+
+  // Relationships
+  collection   Collection @relation(fields: [collectionId], references: [id])
+  collectionId String
+
+  @@unique([collectionId, walletAddress])
+}
+
+enum EventType {
+  VIRTUAL
+  IN_PERSON
+  HYBRID
+}
+
+enum CreatorRole {
+  ADMIN
+  CREATOR
+  MODERATOR
 }
