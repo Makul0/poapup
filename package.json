@@ -8,6 +8,7 @@
     "lint": "next lint",
     "clean": "rm -rf .next node_modules/.cache",
     "build": "pnpm run clean && next build",
+    "test:rankings": "tsx scripts/test-rankings.ts",
     "db:setup": "tsx scripts/setup-database.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

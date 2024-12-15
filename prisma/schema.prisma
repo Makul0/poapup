@@ -8,7 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Collection model represents POAP collections 
 model Collection {
   id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
@@ -17,14 +16,13 @@ model Collection {
   // Collection details
   name          String
   description   String?
-  mintAuthority String  @unique // Solana public key
   isOfficial    Boolean @default(false)
   
   // Collection metadata
   website       String?
   twitter       String?
   discord       String?
-  logo          String? // IPFS/Arweave URI
+  logo          String?
 
   // Collection stats
   totalPoaps     Int      @default(0)
@@ -32,19 +30,14 @@ model Collection {
   lastEventDate  DateTime?
   isActive       Boolean  @default(true)
 
-  // Collection verification
-  verifiedAt    DateTime?
-  verifiedBy    String?   // Admin wallet that verified
-
   // Relationships
-  poaps         Poap[]         // All POAPs in collection
   events        Event[]        // Events in this collection
   creatorAccess CreatorAccess[]
 
-  @@index([mintAuthority])
+  @@index([name])
+  Poap Poap[]
 }
 
-// Event model represents individual POAP events
 model Event {
   id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
@@ -53,15 +46,22 @@ model Event {
   // Event details
   name        String
   description String?
-  startDate   DateTime
-  endDate     DateTime
-  eventType   EventType @default(VIRTUAL)
+  month       String      // Store month name explicitly
+  year        Int         // Store year explicitly
+  eventType   EventType   @default(VIRTUAL)
   location    String?
   maxSupply   Int?
 
+  // Event identifiers
+  mintAuthority  String    // The mint authority for this specific event
+  collectionAddr String    // The collection address for this specific event
+  
+  startDate   DateTime
+  endDate     DateTime
+  
   // Event metadata
   website     String?
-  coverImage  String? // IPFS/Arweave URI
+  coverImage  String?
 
   // Event status
   isActive    Boolean  @default(true)
@@ -72,7 +72,9 @@ model Event {
   collectionId String
   poaps       Poap[]
 
-  @@index([startDate, endDate])
+  @@index([mintAuthority])
+  @@index([collectionAddr])
+  @@index([month, year])
   @@index([collectionId])
 }
 
