@@ -1,4 +1,3 @@
-// scripts/test-rankings.ts
 import { PrismaClient } from '@prisma/client'
 import { RankingsService } from '../src/services/rankings'
 
