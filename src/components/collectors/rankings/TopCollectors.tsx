@@ -1,89 +1,90 @@
-'use client'
-
 import { motion } from 'framer-motion'
-import { TrophyIcon, UserCircleIcon } from '@heroicons/react/24/outline'
-import { truncateAddress } from '@/utils/address'
+import Link from 'next/link'
 
-interface Collector {
+interface TopCollector {
+  rank: number
   wallet: string
   count: number
 }
 
 interface TopCollectorsProps {
-  collectors: Collector[]
+  collectors: TopCollector[]
+  title?: string
+  subtitle?: string
 }
 
-export function TopCollectors({ collectors }: TopCollectorsProps) {
-  const getMedalColor = (rank: number) => {
-    switch (rank) {
-      case 0: return 'text-yellow-500' // Gold
-      case 1: return 'text-gray-400'   // Silver
-      case 2: return 'text-amber-600'  // Bronze
-      default: return 'text-gray-400'
-    }
-  }
-
-  // Get the appropriate medal emoji based on rank
-  const getMedalEmoji = (rank: number) => {
-    switch (rank) {
-      case 0: return '🥇'
-      case 1: return '🥈'
-      case 2: return '🥉'
-      default: return ''
-    }
-  }
+export function TopCollectors({ 
+  collectors, 
+  title = "Top Collectors",
+  subtitle = "Most active participants in this series"
+}: TopCollectorsProps) {
+  const formatWallet = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`
+  const solanaFmUrl = (address: string) => `https://solana.fm/address/${address}`
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center space-x-2">
-          <TrophyIcon className="h-5 w-5 text-yellow-500" />
-          <h3 className="font-semibold text-gray-900">Top Collectors</h3>
-        </div>
+    <div className="bg-white rounded-lg shadow-sm p-6">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        {subtitle && (
+          <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+        )}
       </div>
 
-      {/* Collectors List */}
-      <div className="divide-y divide-gray-200">
+      <div className="space-y-4">
         {collectors.map((collector, index) => (
           <motion.div
             key={collector.wallet}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className="px-4 py-3 hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between"
           >
-            <div className="flex items-center justify-between">
-              {/* Rank and Wallet */}
-              <div className="flex items-center space-x-3">
-                <span className={`font-bold ${getMedalColor(index)}`}>
-                  {getMedalEmoji(index)}
-                </span>
-                <div className="flex items-center space-x-2">
-                  <UserCircleIcon className="h-5 w-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">
-                    {truncateAddress(collector.wallet)}
-                  </span>
-                </div>
-              </div>
-
-              {/* POAP Count */}
+            <div className="flex items-center space-x-4">
+              <span className={`
+                w-6 h-6 flex items-center justify-center rounded-full
+                ${index < 3 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}
+                text-sm font-medium
+              `}>
+                {collector.rank}
+              </span>
               <div className="flex items-center space-x-2">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {collector.count} POAPs
-                </span>
+                <Link 
+                  href={`/collectors/${collector.wallet}`}
+                  className="text-sm font-medium text-gray-900 hover:text-blue-600"
+                >
+                  {formatWallet(collector.wallet)}
+                </Link>
+                <Link 
+                  href={solanaFmUrl(collector.wallet)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg 
+                    className="h-4 w-4" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" 
+                    />
+                  </svg>
+                </Link>
               </div>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-sm font-medium text-gray-900">
+                {collector.count}
+              </span>
+              <span className="text-xs text-gray-500">POAPs</span>
             </div>
           </motion.div>
         ))}
       </div>
-
-      {/* Empty State */}
-      {collectors.length === 0 && (
-        <div className="px-4 py-8 text-center text-gray-500">
-          <p>No collectors found</p>
-        </div>
-      )}
     </div>
   )
 }

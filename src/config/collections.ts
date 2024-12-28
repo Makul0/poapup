@@ -62,5 +62,19 @@ export const initialCollections: CollectionConfig[] = [
         year: 2023
       }
     ]
-  }
+  },
+  {
+    name: "Hacker Houses 2023",
+    description: "India Hacker Houses 2023",
+    isOfficial: true,
+    events: [
+      {
+        name: "India Hacker Houses 2023",
+        mintAuthority: "J3CQs9xfn5YAPU1pP3YhdMLQcJuRtuFZBfDJSxxuwxof",
+        collectionAddr: "",
+        month: "August",
+        year: 2023
+      }
+    ]
+  },
 ]

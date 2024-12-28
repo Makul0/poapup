@@ -1,98 +1,73 @@
 // src/components/collectors/rankings/EventsList.tsx
 'use client'
+import { format, parseISO } from 'date-fns'
+import { motion } from 'framer-motion'
 
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDownIcon, ChevronRightIcon, UsersIcon } from '@heroicons/react/24/outline'
-import type { EventGroup } from '@/services/rankings'
-
-interface EventsListProps {
-  events: EventGroup[]
+interface Event {
+  name: string
+  date: string // This should be an ISO date string
+  participantCount: number
 }
 
-export function EventsList({ events }: EventsListProps) {
-  const [expandedMonth, setExpandedMonth] = useState<string | null>(null)
+interface EventsListProps {
+  events: Event[]
+  isCompact?: boolean
+}
+
+export function EventsList({ events, isCompact = false }: EventsListProps) {
+  // Helper function to safely format dates
+  const formatEventDate = (dateString: string | undefined) => {
+    if (!dateString) {
+      return 'Date unavailable'
+    }
+
+    try {
+      // Attempt to parse and format the date
+      const date = parseISO(dateString)
+      return format(date, 'PPP')
+    } catch (error) {
+      console.error('Error formatting date:', dateString, error)
+      return 'Invalid date'
+    }
+  }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">Events</h3>
-      
-      <div className="space-y-3">
-        {events.map(event => (
-          <div key={event.name} className="border border-gray-200 rounded-lg">
-            {/* Month Header */}
-            <button
-              onClick={() => setExpandedMonth(
-                expandedMonth === event.name ? null : event.name
-              )}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center space-x-2">
-                {expandedMonth === event.name ? (
-                  <ChevronDownIcon className="h-4 w-4 text-gray-400" />
-                ) : (
-                  <ChevronRightIcon className="h-4 w-4 text-gray-400" />
-                )}
-                <h4 className="font-medium text-gray-900">{event.name}</h4>
-              </div>
-
-              <div className="flex items-center space-x-4 text-sm text-gray-500">
-                <span>{event.totalPoaps} POAPs</span>
-                <div className="flex items-center space-x-1">
-                  <UsersIcon className="h-4 w-4" />
-                  <span>{event.uniqueCollectors}</span>
-                </div>
-              </div>
-            </button>
-
-            {/* POAPs Grid */}
-            <AnimatePresence>
-              {expandedMonth === event.name && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="border-t border-gray-200"
-                >
-                  <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {event.poaps.map(poap => (
-                      <div
-                        key={poap.id}
-                        className="group relative aspect-square rounded-lg overflow-hidden bg-gray-100 hover:bg-gray-200 transition-colors"
-                      >
-                        {/* POAP Image */}
-                        <img
-                          src={poap.image}
-                          alt={poap.name}
-                          className="w-full h-full object-cover"
-                        />
-
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-opacity flex items-center justify-center">
-                          <div className="text-white opacity-0 group-hover:opacity-100 transition-opacity p-4 text-center">
-                            <h5 className="font-medium text-sm">
-                              {poap.name}
-                            </h5>
-                            <p className="text-xs mt-1">
-                              {poap.collectors} Collectors
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+      {events.map((event, index) => (
+        <motion.div
+          key={`${event.name}-${index}`} // Added index to ensure unique keys
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: index * 0.1 }}
+          className={`
+            flex justify-between items-center 
+            ${isCompact ? 'py-2' : 'p-4'} 
+            bg-white rounded-lg shadow-sm
+          `}
+        >
+          <div>
+            <h3 className={`${isCompact ? 'text-sm' : 'text-base'} font-medium text-gray-900`}>
+              {event.name || 'Unnamed Event'}
+            </h3>
+            <p className={`${isCompact ? 'text-xs' : 'text-sm'} text-gray-500`}>
+              {formatEventDate(event.date)}
+            </p>
           </div>
-        ))}
-      </div>
-      
-      {/* Empty State */}
+          <div className="text-right">
+            <p className={`${isCompact ? 'text-sm' : 'text-base'} font-medium text-gray-900`}>
+              {event.participantCount.toLocaleString()}
+            </p>
+            <p className={`${isCompact ? 'text-xs' : 'text-sm'} text-gray-500`}>
+              participants
+            </p>
+          </div>
+        </motion.div>
+      ))}
+
+      {/* Show empty state if no events */}
       {events.length === 0 && (
-        <div className="text-center py-8 bg-gray-50 rounded-lg">
-          <p className="text-gray-500">No events found</p>
+        <div className="text-center py-6 bg-gray-50 rounded-lg">
+          <p className="text-gray-500">No events to display</p>
         </div>
       )}
     </div>

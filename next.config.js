@@ -1,17 +1,32 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Image configuration
   images: {
-    domains: ['images.unsplash.com', 'api.placeholder.com'],
+    domains: [
+      'images.unsplash.com',
+      'api.placeholder.com',
+      'arweave.net',
+      'cdn.helius-rpc.com',
+      'ipfs.io',
+      'nftstorage.link'
+    ],
   },
+
+  // Experimental features
   experimental: {
     turbo: {
       rules: {
+        // Add any custom Turbo rules here
       },
     },
   },
+
+  // Webpack configuration
   webpack: (config) => {
+    // Exclude packages from the server bundle
     config.externals.push('pino-pretty', 'lokijs', 'encoding');
     
+    // Provide Node.js module fallbacks
     config.resolve.fallback = {
       ...config.resolve.fallback,
       fs: false,
@@ -30,8 +45,9 @@ const nextConfig = {
 
     return config;
   },
-  // Add this to prevent timeout during build
-  staticPageGenerationTimeout: 120,
+
+  // Increase build timeout
+  staticPageGenerationTimeout: 180,
 }
 
 module.exports = nextConfig

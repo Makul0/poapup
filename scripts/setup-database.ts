@@ -1,3 +1,4 @@
+// scripts/setup-database.ts
 import { PrismaClient } from '@prisma/client'
 import { Helius } from 'helius-sdk'
 import { initialCollections } from '../src/config/collections'
@@ -38,6 +39,10 @@ function getMonthNumber(month: string): number {
 }
 
 async function main() {
+  if (!process.env.NEXT_PUBLIC_HELIUS_API_KEY) {
+    throw new Error('NEXT_PUBLIC_HELIUS_API_KEY environment variable is not set')
+  }
+
   console.log('🚀 Starting database setup and POAP sync...')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
@@ -65,6 +70,11 @@ async function main() {
 
       for (const eventConfig of collectionConfig.events) {
         try {
+          if (!eventConfig.collectionAddr) {
+            console.log(`⚠️  Skipping event ${eventConfig.name} - No collection address`)
+            continue
+          }
+
           console.log(`\n📅 Processing event: ${eventConfig.name}`)
 
           const startDate = new Date(eventConfig.year, getMonthNumber(eventConfig.month))
@@ -100,19 +110,6 @@ async function main() {
 
           console.log(`Found ${assets.items.length} POAPs`)
 
-          if (assets.items[0]) {
-            console.log('Sample Asset Structure (first asset):')
-            console.log(JSON.stringify({
-              id: assets.items[0].id,
-              ownership: assets.items[0].ownership,
-              content: {
-                metadata: {
-                  name: assets.items[0].content.metadata.name,
-                }
-              }
-            }, null, 2))
-          }
-
           const batchSize = 100
           for (let i = 0; i < assets.items.length; i += batchSize) {
             const batch = assets.items
@@ -121,7 +118,12 @@ async function main() {
 
             await Promise.allSettled(batch.map(async (asset) => {
               try {
-                const mintDate = parseMintDate(asset.mintedDate)
+                const mintDate = parseMintDate((asset.ownership as any).mintedAt)
+                
+                if (!asset.id || !asset.content?.metadata?.name) {
+                  console.warn(`Skipping asset due to missing required data: ${asset.id}`)
+                  return
+                }
 
                 await prisma.poap.create({
                   data: {
@@ -143,12 +145,12 @@ async function main() {
               } catch (error) {
                 console.error('Error creating individual POAP:', {
                   assetId: asset.id,
-                  error: error.message
+                  error: error instanceof Error ? error.message : 'Unknown error'
                 })
               }
             }))
 
-            console.log(`✓ Processed ${Math.min((i + batchSize), batch.length)} POAPs`)
+            console.log(`✓ Processed ${Math.min((i + batchSize), assets.items.length)} POAPs`)
           }
 
           const eventStats = await prisma.poap.count({
@@ -157,7 +159,9 @@ async function main() {
           console.log(`📊 Event total POAPs: ${eventStats}`)
 
         } catch (error) {
-          console.error(`Error processing event ${eventConfig.name}:`, error)
+          console.error(`Error processing event ${eventConfig.name}:`, 
+            error instanceof Error ? error.message : 'Unknown error'
+          )
           continue
         }
       }
@@ -175,7 +179,9 @@ async function main() {
           }
         })
       } catch (error) {
-        console.error(`Error updating collection stats for ${collection.name}:`, error)
+        console.error(`Error updating collection stats for ${collection.name}:`, 
+          error instanceof Error ? error.message : 'Unknown error'
+        )
       }
     }
 
@@ -208,7 +214,7 @@ async function main() {
     })
 
   } catch (error) {
-    console.error('❌ Error during setup:', error)
+    console.error('❌ Error during setup:', error instanceof Error ? error.message : 'Unknown error')
     throw error
   } finally {
     await prisma.$disconnect()
