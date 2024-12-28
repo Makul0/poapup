@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/prisma'
 import { Cache } from '@/lib/cache'
-import type { Prisma } from '@prisma/client'
 import type { 
   RankingStats, 
   CollectionGroup,
@@ -9,119 +8,123 @@ import type {
   RankingsResult,
   CollectionWithRelations 
 } from '@/types/rankings'
+import { z } from 'zod'
 
-/**
- * Initialize cache with rankings prefix for better organization.
- * We use a 5-minute cache to balance freshness and performance.
- */
+// Cache configuration
 const cache = new Cache('rankings:')
-
-/**
- * Number of collections to load per page.
- * Kept small for better performance and faster initial page loads.
- */
 const ITEMS_PER_PAGE = 20
+const CACHE_TIME = 300 // 5 minutes
+
+// Input validation schema
+const RankingsFilterSchema = z.object({
+  collectionId: z.string().optional(),
+  eventId: z.string().optional()
+})
+
+type RankingsFilter = z.infer<typeof RankingsFilterSchema>
+
+export interface CollectionGroup {
+  id: string
+  name: string
+  description: string
+  events: Array<{
+    name: string
+    date: string
+    participantCount: number
+  }>
+  stats: {
+    totalPoaps: number
+    uniqueEvents: number
+    mostActiveMonth: string
+    topCollectors: Array<{
+      wallet: string
+      count: number
+      rank: number
+    }>
+  }
+}
+
+interface RankingsResult {
+  groups: CollectionGroup[]
+}
 
 export class RankingsService {
   /**
-   * Fetches paginated and grouped rankings data.
-   * This is the main method for getting collection rankings.
-   * It handles caching, pagination, and data transformation.
-   * 
-   * @param page - The page number to fetch (1-based)
-   * @returns A RankingsResult containing grouped collections with their stats
+   * Fetches paginated and grouped rankings data with optional filtering.
    */
-  static async getGroupedRankings(page = 1): Promise<RankingsResult> {
-    const cacheKey = `page:${page}`
+  public static async getGroupedRankings(
+    page: number,
+    filters?: {
+      collectionId?: string
+      eventId?: string
+    }
+  ): Promise<RankingsResult> {
+    const cacheKey = `page:${page}:${JSON.stringify(filters)}`
     
     try {
       const cached = await cache.get<RankingsResult>(cacheKey)
       if (cached) return cached
-
-      const collections = await prisma.collection.findMany({
-        where: { 
-          isActive: true,
-          Poap: { some: {} }
-        },
-        include: {
+  
+      // Fetch data from your database
+      const groups = await prisma.collection.findMany({
+        where: {
+          id: filters?.collectionId,
           events: {
-            orderBy: { startDate: 'desc' },
-            include: {
+            some: filters?.eventId ? { id: filters.eventId } : undefined
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          events: {
+            select: {
+              name: true,
+              month: true,
+              year: true,
               poaps: {
-                include: { holders: true }
+                select: {
+                  holders: {
+                    select: {
+                      walletAddress: true
+                    }
+                  }
+                }
               }
             }
           },
-          Poap: {
-            include: { holders: true }
-          }
-        },
-        skip: (page - 1) * ITEMS_PER_PAGE,
-        take: ITEMS_PER_PAGE,
-        orderBy: { totalPoaps: 'desc' }
-      })
-
-      const totalCollections = await prisma.collection.count({
-        where: { 
-          isActive: true,
-          Poap: { some: {} }
-        }
-      })
-
-      const groups = await Promise.all(
-        collections.map(async (collection) => {
-          const eventGroups: EventGroup[] = collection.events.map(event => {
-            const poapData: PoapData[] = event.poaps.map(poap => ({
-              id: poap.id,
-              name: poap.name,
-              description: poap.description,
-              image: poap.image,
-              collectors: poap.holders.length,
-              mintDate: poap.createdAt
-            }))
-
-            const uniqueCollectors = new Set(
-              event.poaps.flatMap(p => p.holders.map(h => h.walletAddress))
-            ).size
-
-            return {
-              id: event.id,
-              name: event.name,
-              startDate: event.startDate,
-              endDate: event.endDate,
-              poaps: poapData,
-              totalPoaps: event.poaps.length,
-              uniqueCollectors
+          _count: {
+            select: {
+              poaps: true,
+              events: true
             }
-          })
-
-          const stats = await this.getCollectionStats({
-            ...collection,
-            poaps: collection.Poap
-          })
-
-          return {
-            id: collection.id,
-            name: collection.name,
-            description: collection.description,
-            mintAuthority: collection.mintAuthority,
-            events: eventGroups,
-            stats
           }
-        })
-      )
-
-      const result: RankingsResult = {
-        groups,
-        pagination: {
-          currentPage: page,
-          hasMore: page * ITEMS_PER_PAGE < totalCollections,
-          totalPages: Math.ceil(totalCollections / ITEMS_PER_PAGE)
         }
-      }
+      })
 
-      await cache.set(cacheKey, result, 300)
-      return result
+      return {
+        groups: groups.map(group => ({
+          id: group.id,
+          name: group.name,
+          description: group.description,
+          events: group.events.map(event => ({
+            name: event.name,
+            month: event.month,
+            year: event.year,
+            poaps: event.poaps.map(poap => ({
+              holder: {
+                walletAddress: poap.holders[0]?.walletAddress || ''
+              }
+            }))
+          })),
+          stats: {
+            totalPoaps: group._count.poaps,
+            uniqueEvents: group._count.events,
+            mostActiveMonth: this.getMostActiveMonth(group.events),
+            topCollectors: this.getTopCollectors(group)
+          }
+        }))
+      }
 
     } catch (error) {
       console.error('Error fetching rankings:', error)
@@ -131,17 +134,41 @@ export class RankingsService {
   }
 
   /**
-   * Gets detailed statistics for a collection.
-   * Calculates top collectors and monthly activity patterns.
-   * 
-   * @param collection - The collection with its relationships
-   * @returns Collection statistics including top collectors
+   * Transforms a database event into an EventGroup structure
+   */
+  private static transformEventToGroup(event: any): EventGroup {
+    const poapData = event.poaps.map((poap: any): PoapData => ({
+      id: poap.id,
+      name: poap.name,
+      description: poap.description,
+      image: poap.image,
+      collectors: poap.holders.length,
+      mintDate: poap.createdAt
+    }))
+
+    return {
+      id: event.id,
+      name: event.name,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      poaps: poapData,
+      totalPoaps: event.poaps.length,
+      uniqueCollectors: new Set(
+        event.poaps.flatMap((p: any) => 
+          p.holders.map((h: any) => h.walletAddress)
+        )
+      ).size
+    }
+  }
+
+  /**
+   * Calculates detailed statistics for a collection
    */
   private static async getCollectionStats(
     collection: CollectionWithRelations
   ): Promise<RankingStats> {
     try {
-      if (!collection.poaps?.length) {
+      if (!collection.Poap?.length) {
         return {
           totalPoaps: 0,
           uniqueEvents: collection.events?.length || 0,
@@ -150,6 +177,7 @@ export class RankingsService {
         }
       }
 
+      // Calculate monthly activity
       const monthlyActivity = collection.events.reduce((counts, event) => {
         const month = event.startDate.toLocaleString('default', {
           month: 'long',
@@ -159,17 +187,20 @@ export class RankingsService {
         return counts
       }, {} as Record<string, number>)
 
+      // Get most active month
       const mostActiveMonth = Object.entries(monthlyActivity)
         .sort(([,a], [,b]) => b - a)
         [0]?.[0] || 'No activity'
 
-      const collectorCounts = collection.poaps.reduce((counts, poap) => {
+      // Calculate collector rankings
+      const collectorCounts = collection.Poap.reduce((counts, poap) => {
         poap.holders?.forEach(holder => {
           counts[holder.walletAddress] = (counts[holder.walletAddress] || 0) + 1
         })
         return counts
       }, {} as Record<string, number>)
 
+      // Get top collectors
       const topCollectors = Object.entries(collectorCounts)
         .sort(([,a], [,b]) => b - a)
         .slice(0, 10)
@@ -180,115 +211,75 @@ export class RankingsService {
         }))
 
       return {
-        totalPoaps: collection.poaps.length,
+        totalPoaps: collection.Poap.length,
         uniqueEvents: collection.events.length,
         mostActiveMonth,
         topCollectors
       }
+
     } catch (error) {
       console.error('Error calculating collection stats:', error)
-      return {
-        totalPoaps: 0,
-        uniqueEvents: 0,
-        mostActiveMonth: 'Error calculating',
-        topCollectors: []
-      }
+      throw new Error('Failed to calculate collection statistics')
     }
   }
 
   /**
-   * Gets top collectors across all collections.
-   * Provides a global leaderboard of POAP collectors.
-   * 
-   * @param limit - Maximum number of collectors to return
-   * @returns Array of top collectors with their stats
+   * Invalidates all rankings caches
    */
-  static async getGlobalTopCollectors(limit = 100) {
-    const cacheKey = `global:top-collectors:${limit}`
-
-    return cache.getOrSet(cacheKey, async () => {
-      const holders = await prisma.poapHolder.groupBy({
-        by: ['walletAddress'],
-        _count: {
-          poapId: true
-        },
-        orderBy: {
-          _count: {
-            poapId: 'desc'
-          }
-        },
-        take: limit
-      })
-
-      return holders.map((holder, index) => ({
-        rank: index + 1,
-        wallet: holder.walletAddress,
-        count: holder._count.poapId
-      }))
-    }, 300)
-  }
-
-  /**
-   * Gets rankings and statistics for a specific wallet address.
-   * Shows all collections and POAPs a wallet has collected.
-   * 
-   * @param walletAddress - The wallet address to get rankings for
-   * @returns Detailed collection holdings for the wallet
-   */
-  static async getWalletRankings(walletAddress: string) {
-    const cacheKey = `wallet:${walletAddress}`
-
-    return cache.getOrSet(cacheKey, async () => {
-      const holdings = await prisma.poapHolder.findMany({
-        where: { walletAddress },
-        include: {
-          poap: {
-            include: {
-              collection: true,
-              event: true
-            }
-          }
-        }
-      })
-
-      const collectionHoldings = holdings.reduce((groups, holding) => {
-        const collectionId = holding.poap.collectionId
-        if (!groups[collectionId]) {
-          groups[collectionId] = {
-            collection: holding.poap.collection,
-            poaps: []
-          }
-        }
-        groups[collectionId].poaps.push(holding.poap)
-        return groups
-      }, {} as Record<string, { 
-        collection: Prisma.CollectionGetPayload<{}>,
-        poaps: Array<Prisma.PoapGetPayload<{ include: { event: true } }>>
-      }>)
-
-      return Object.values(collectionHoldings).map(({ collection, poaps }) => ({
-        collectionId: collection.id,
-        collectionName: collection.name,
-        totalPoaps: poaps.length,
-        firstPoapDate: new Date(Math.min(...poaps.map(p => p.createdAt.getTime()))),
-        latestPoapDate: new Date(Math.max(...poaps.map(p => p.createdAt.getTime()))),
-        uniqueEvents: new Set(poaps.map(p => p.eventId)).size,
-        poaps: poaps.map(poap => ({
-          id: poap.id,
-          name: poap.name,
-          image: poap.image,
-          eventName: poap.event.name,
-          mintDate: poap.createdAt
-        }))
-      }))
-    }, 300)
-  }
-
-  /**
-   * Invalidates all rankings caches.
-   * Call this when significant changes occur to collections or POAPs.
-   */
-  static async invalidateCache() {
+  public static async invalidateCache(): Promise<void> {
     await cache.delete('*')
   }
+
+  private static getMostActiveMonth(events: any[]): string {
+    if (!events.length) return 'No activity'
+    const monthCounts = events.reduce((acc, event) => {
+      const key = `${event.month} ${event.year}`
+      acc[key] = (acc[key] || 0) + event.poaps.length
+      return acc
+    }, {})
+    const [mostActive] = Object.entries(monthCounts)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
+    return mostActive?.[0] || 'No activity'
+  }
+
+  private static getTopCollectors(group: any): Array<{
+    wallet: string;
+    count: number;
+    rank: number;
+    events?: Array<{ name: string; month: string; year: number }>;
+  }> {
+    const collectors = group.events.reduce((acc: Record<string, any>, event: any) => {
+      event.poaps.forEach((poap: any) => {
+        poap.holders.forEach((holder: any) => {
+          if (!acc[holder.walletAddress]) {
+            acc[holder.walletAddress] = {
+              count: 0,
+              events: []
+            }
+          }
+          acc[holder.walletAddress].count++
+          if (!acc[holder.walletAddress].events.find((e: any) => e.name === event.name)) {
+            acc[holder.walletAddress].events.push({
+              name: event.name,
+              month: event.month,
+              year: event.year
+            })
+          }
+        })
+      })
+      return acc
+    }, {})
+
+    return Object.entries(collectors)
+      .sort(([, a], [, b]) => (b as any).count - (a as any).count)
+      .slice(0, 10)
+      .map(([wallet, data], index) => ({
+        wallet,
+        count: data.count,
+        rank: index + 1,
+        events: data.events
+      }))
+  }
 }
+
+export default RankingsService
