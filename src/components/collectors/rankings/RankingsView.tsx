@@ -1,118 +1,94 @@
 // src/components/collectors/rankings/RankingsView.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useInView } from 'react-intersection-observer'
-import { motion, AnimatePresence } from 'framer-motion'
-import { CollectionCard } from './CollectionCard'
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import type { RankingsResult } from '@/services/rankings'
-import { useToast } from '@/hooks/useToast'
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { EventSeriesCard } from './EventSeriesCard'
+
+interface WalletStats {
+  wallet: string
+  events: {
+    name: string
+    month: string
+    year: number
+  }[]
+  totalPoaps: number
+}
 
 interface RankingsViewProps {
-  initialData: RankingsResult
+  initialData: {
+    groups: Array<{
+      id: string
+      name: string
+      description: string
+      events: Array<{
+        name: string
+        month: string
+        year: number
+        poaps: Array<{
+          holder: {
+            walletAddress: string
+          }
+        }>
+      }>
+      stats: {
+        totalPoaps: number
+        uniqueEvents: number
+      }
+    }>
+  }
 }
 
 export function RankingsView({ initialData }: RankingsViewProps) {
-  // State management
-  const [rankings, setRankings] = useState(initialData)
-  const [isLoading, setIsLoading] = useState(false)
-  const [page, setPage] = useState(1)
-  const { showToast } = useToast()
+  const jupGroup = initialData.groups.find(g => g.name === "J.U.P Planetary Calls")
+  
+  if (!jupGroup) return null
 
-  // Infinite scroll setup
-  const { ref, inView } = useInView({
-    threshold: 0,
-    rootMargin: '100px'
-  })
-
-  // Load more data when scrolling
-  useEffect(() => {
-    if (inView && !isLoading && rankings.pagination.hasMore) {
-      loadMoreRankings()
-    }
-  }, [inView])
-
-  // Function to load more rankings
-  const loadMoreRankings = async () => {
-    try {
-      setIsLoading(true)
-      const nextPage = page + 1
+  // Aggregate POAPs per wallet
+  const walletStats = jupGroup.events.reduce((acc: WalletStats[], event) => {
+    event.poaps.forEach(poap => {
+      const wallet = poap.holder.walletAddress
+      let stats = acc.find(s => s.wallet === wallet)
       
-      const response = await fetch(`/api/rankings?page=${nextPage}`)
-      if (!response.ok) throw new Error('Failed to load more rankings')
-      
-      const data: RankingsResult = await response.json()
+      if (!stats) {
+        stats = {
+          wallet,
+          events: [],
+          totalPoaps: 0
+        }
+        acc.push(stats)
+      }
 
-      setRankings(prev => ({
-        groups: [...prev.groups, ...data.groups],
-        pagination: data.pagination
-      }))
-      setPage(nextPage)
+      // Add event if not already tracked for this wallet
+      if (!stats.events.find(e => e.name === event.name)) {
+        stats.events.push({
+          name: event.name,
+          month: event.month,
+          year: event.year
+        })
+        stats.totalPoaps++
+      }
+    })
+    return acc
+  }, [])
 
-    } catch (error) {
-      console.error('Error loading rankings:', error)
-      showToast({
-        title: 'Error',
-        description: 'Failed to load more rankings',
-        type: 'error'
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  // Sort by number of events attended
+  const sortedStats = walletStats
+    .sort((a, b) => b.totalPoaps - a.totalPoaps)
+    .map((stats, index) => ({
+      wallet: stats.wallet,
+      rank: index + 1,
+      totalPoaps: stats.totalPoaps,
+      events: stats.events
+    }))
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">POAP Rankings</h1>
-        <p className="mt-2 text-lg text-gray-600">
-          Discover the most active collectors and recent events across all POAP collections
-        </p>
-      </header>
-
-      <div className="space-y-8">
-        <AnimatePresence mode="popLayout">
-          {rankings.groups.map((collection, index) => (
-            <motion.div
-              key={collection.name}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ 
-                duration: 0.3,
-                delay: index * 0.1 
-              }}
-            >
-              <CollectionCard collection={collection} />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {/* Infinite scroll trigger */}
-        <div ref={ref} className="py-8 flex justify-center">
-          {isLoading && <LoadingSpinner />}
-        </div>
-
-        {/* No more results indicator */}
-        {!isLoading && !rankings.pagination.hasMore && rankings.groups.length > 0 && (
-          <p className="text-center text-gray-500 py-8">
-            No more collections to load
-          </p>
-        )}
-
-        {/* Empty state */}
-        {rankings.groups.length === 0 && !isLoading && (
-          <div className="text-center py-12 bg-white rounded-lg shadow-sm">
-            <h3 className="text-lg font-medium text-gray-900">
-              No Collections Found
-            </h3>
-            <p className="mt-2 text-sm text-gray-500">
-              There are no POAP collections to display at this time.
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
+    <EventSeriesCard
+      name={jupGroup.name}
+      description={jupGroup.description}
+      totalPoaps={jupGroup.stats.totalPoaps}
+      uniqueEvents={jupGroup.stats.uniqueEvents}
+      collectors={sortedStats}
+    />
   )
 }
