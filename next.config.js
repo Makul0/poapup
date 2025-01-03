@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Image configuration
+  // Image configuration stays the same
   images: {
     domains: [
       'images.unsplash.com',
@@ -11,22 +11,23 @@ const nextConfig = {
       'nftstorage.link'
     ],
   },
-
-  // Experimental features
+  // Update experimental features configuration
   experimental: {
+    // Update serverActions to use the new syntax
+    serverActions: {
+      bodySizeLimit: '2mb',
+      allowedOrigins: ['localhost:3000']
+    },
     turbo: {
-      rules: {
-        // Add any custom Turbo rules here
-      },
+      rules: {},
     },
   },
-
-  // Webpack configuration
+  // Rest of your configuration stays the same
+  typescript: {
+    ignoreBuildErrors: false,
+  },
   webpack: (config) => {
-    // Exclude packages from the server bundle
     config.externals.push('pino-pretty', 'lokijs', 'encoding');
-    
-    // Provide Node.js module fallbacks
     config.resolve.fallback = {
       ...config.resolve.fallback,
       fs: false,
@@ -42,11 +43,8 @@ const nextConfig = {
       os: require.resolve('os-browserify'),
       path: require.resolve('path-browserify'),
     };
-
     return config;
   },
-
-  // Increase build timeout
   staticPageGenerationTimeout: 180,
 }
 

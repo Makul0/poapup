@@ -1,30 +1,18 @@
 // src/components/collectors/rankings/EventSeriesCard.tsx
-"use client";
+'use client'
 
-import { useState } from "react";
-import { motion } from "framer-motion";
-import Link from "next/link";
-import { truncateAddress } from "@/utils/address";
+import { useState } from 'react'
+import Link from 'next/link'
+import { motion } from 'framer-motion'
+import { truncateAddress } from '@/utils/address'
+import type { TopCollector } from '@/types/rankings'
 
-interface Event {
-  name: string;
-  month: string;
-  year: number;
-}
-
-interface Collector {
-  wallet: string;
-  totalPoaps: number;
-  rank: number;
-  events?: Event[];
-}
-
-interface EventSeriesProps {
-  name: string;
-  description: string;
-  totalPoaps: number;
-  uniqueEvents: number;
-  collectors: Collector[];
+interface Props {
+  name: string
+  description: string
+  totalPoaps: number
+  uniqueEvents: number
+  collectors: TopCollector[]
 }
 
 export function EventSeriesCard({
@@ -33,8 +21,8 @@ export function EventSeriesCard({
   totalPoaps,
   uniqueEvents,
   collectors,
-}: EventSeriesProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+}: Props) {
+  const [isExpanded, setIsExpanded] = useState(false)
 
   return (
     <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">

@@ -1,13 +1,7 @@
+// src/services/rankings.ts
 import { prisma } from '@/lib/prisma'
 import { Cache } from '@/lib/cache'
-import type { 
-  RankingStats, 
-  CollectionGroup,
-  EventGroup,
-  PoapData,
-  RankingsResult,
-  CollectionWithRelations 
-} from '@/types/rankings'
+import type { RankingsResult } from '@/types/rankings'
 import { z } from 'zod'
 
 // Cache configuration
@@ -23,70 +17,52 @@ const RankingsFilterSchema = z.object({
 
 type RankingsFilter = z.infer<typeof RankingsFilterSchema>
 
-export interface CollectionGroup {
-  id: string
-  name: string
-  description: string
-  events: Array<{
-    name: string
-    date: string
-    participantCount: number
-  }>
-  stats: {
-    totalPoaps: number
-    uniqueEvents: number
-    mostActiveMonth: string
-    topCollectors: Array<{
-      wallet: string
-      count: number
-      rank: number
-    }>
-  }
-}
-
-interface RankingsResult {
-  groups: CollectionGroup[]
-}
-
 export class RankingsService {
   /**
    * Fetches paginated and grouped rankings data with optional filtering.
    */
   public static async getGroupedRankings(
     page: number,
-    filters?: {
-      collectionId?: string
-      eventId?: string
-    }
+    filters?: RankingsFilter
   ): Promise<RankingsResult> {
     const cacheKey = `page:${page}:${JSON.stringify(filters)}`
     
     try {
+      // Try to get cached data first
       const cached = await cache.get<RankingsResult>(cacheKey)
       if (cached) return cached
-  
-      // Fetch data from your database
-      const groups = await prisma.collection.findMany({
-        where: {
-          id: filters?.collectionId,
-          events: {
-            some: filters?.eventId ? { id: filters.eventId } : undefined
-          }
-        },
+
+      // Prepare where clause based on filters
+      const where = {
+        ...(filters?.collectionId ? { id: filters.collectionId } : {}),
+        ...(filters?.eventId ? {
+          events: { some: { id: filters.eventId } }
+        } : {})
+      }
+
+      // Fetch collections with related data
+      const collections = await prisma.collection.findMany({
+        where,
         select: {
           id: true,
           name: true,
           description: true,
           events: {
             select: {
+              id: true,
               name: true,
               month: true,
               year: true,
+              startDate: true,
+              endDate: true,
               poaps: {
                 select: {
+                  id: true,
+                  name: true,
                   holders: {
                     select: {
-                      walletAddress: true
+                      walletAddress: true,
+                      acquiredAt: true
                     }
                   }
                 }
@@ -95,189 +71,121 @@ export class RankingsService {
           },
           _count: {
             select: {
-              poaps: true,
-              events: true
+              events: true,
+              Poap: true // Note: matches the schema relation name
             }
           }
-        }
+        },
+        skip: (page - 1) * ITEMS_PER_PAGE,
+        take: ITEMS_PER_PAGE
       })
 
-      return {
-        groups: groups.map(group => ({
-          id: group.id,
-          name: group.name,
-          description: group.description,
-          events: group.events.map(event => ({
+      // Transform the data to match our types
+      const result: RankingsResult = {
+        groups: collections.map(collection => ({
+          id: collection.id,
+          name: collection.name,
+          description: collection.description || '',
+          events: collection.events.map(event => ({
             name: event.name,
             month: event.month,
             year: event.year,
-            poaps: event.poaps.map(poap => ({
+            poaps: event.poaps?.map(poap => ({
               holder: {
                 walletAddress: poap.holders[0]?.walletAddress || ''
               }
-            }))
+            })) || []
           })),
           stats: {
-            totalPoaps: group._count.poaps,
-            uniqueEvents: group._count.events,
-            mostActiveMonth: this.getMostActiveMonth(group.events),
-            topCollectors: this.getTopCollectors(group)
+            totalPoaps: collection._count.Poap,
+            uniqueEvents: collection._count.events,
+            mostActiveMonth: this.getMostActiveMonth(collection.events),
+            topCollectors: this.calculateCollectorStats(collection.events)
           }
         }))
       }
+
+      // Cache the result
+      await cache.set(cacheKey, result, CACHE_TIME)
+
+      return result
 
     } catch (error) {
       console.error('Error fetching rankings:', error)
-      throw new Error('Failed to fetch rankings: ' + 
-        (error instanceof Error ? error.message : 'Unknown error'))
+      throw error
     }
   }
 
   /**
-   * Transforms a database event into an EventGroup structure
+   * Calculate the most active month from events
    */
-  private static transformEventToGroup(event: any): EventGroup {
-    const poapData = event.poaps.map((poap: any): PoapData => ({
-      id: poap.id,
-      name: poap.name,
-      description: poap.description,
-      image: poap.image,
-      collectors: poap.holders.length,
-      mintDate: poap.createdAt
-    }))
-
-    return {
-      id: event.id,
-      name: event.name,
-      startDate: event.startDate,
-      endDate: event.endDate,
-      poaps: poapData,
-      totalPoaps: event.poaps.length,
-      uniqueCollectors: new Set(
-        event.poaps.flatMap((p: any) => 
-          p.holders.map((h: any) => h.walletAddress)
-        )
-      ).size
-    }
-  }
-
-  /**
-   * Calculates detailed statistics for a collection
-   */
-  private static async getCollectionStats(
-    collection: CollectionWithRelations
-  ): Promise<RankingStats> {
-    try {
-      if (!collection.Poap?.length) {
-        return {
-          totalPoaps: 0,
-          uniqueEvents: collection.events?.length || 0,
-          mostActiveMonth: 'No activity',
-          topCollectors: []
-        }
-      }
-
-      // Calculate monthly activity
-      const monthlyActivity = collection.events.reduce((counts, event) => {
-        const month = event.startDate.toLocaleString('default', {
-          month: 'long',
-          year: 'numeric'
-        })
-        counts[month] = (counts[month] || 0) + event.poaps.length
-        return counts
-      }, {} as Record<string, number>)
-
-      // Get most active month
-      const mostActiveMonth = Object.entries(monthlyActivity)
-        .sort(([,a], [,b]) => b - a)
-        [0]?.[0] || 'No activity'
-
-      // Calculate collector rankings
-      const collectorCounts = collection.Poap.reduce((counts, poap) => {
-        poap.holders?.forEach(holder => {
-          counts[holder.walletAddress] = (counts[holder.walletAddress] || 0) + 1
-        })
-        return counts
-      }, {} as Record<string, number>)
-
-      // Get top collectors
-      const topCollectors = Object.entries(collectorCounts)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 10)
-        .map(([wallet, count], index) => ({
-          wallet,
-          count,
-          rank: index + 1
-        }))
-
-      return {
-        totalPoaps: collection.Poap.length,
-        uniqueEvents: collection.events.length,
-        mostActiveMonth,
-        topCollectors
-      }
-
-    } catch (error) {
-      console.error('Error calculating collection stats:', error)
-      throw new Error('Failed to calculate collection statistics')
-    }
-  }
-
-  /**
-   * Invalidates all rankings caches
-   */
-  public static async invalidateCache(): Promise<void> {
-    await cache.delete('*')
-  }
-
   private static getMostActiveMonth(events: any[]): string {
-    if (!events.length) return 'No activity'
+    if (!events?.length) return 'No activity'
+
     const monthCounts = events.reduce((acc, event) => {
       const key = `${event.month} ${event.year}`
-      acc[key] = (acc[key] || 0) + event.poaps.length
+      acc[key] = (acc[key] || 0) + (event.poaps?.length || 0)
       return acc
-    }, {})
+    }, {} as Record<string, number>)
+
     const [mostActive] = Object.entries(monthCounts)
-      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .sort(([, a], [, b]) => b - a)
+
     return mostActive?.[0] || 'No activity'
   }
 
-  private static getTopCollectors(group: any): Array<{
-    wallet: string;
-    count: number;
-    rank: number;
-    events?: Array<{ name: string; month: string; year: number }>;
-  }> {
-    const collectors = group.events.reduce((acc: Record<string, any>, event: any) => {
+  /**
+   * Calculate collector statistics from events
+   */
+  private static calculateCollectorStats(events: any[]) {
+    const collectors = new Map<string, {
+      count: number,
+      events: Set<string>,
+      eventDetails: Array<{ name: string; month: string; year: number }>
+    }>()
+
+    // Process events and their POAPs
+    events.forEach(event => {
+      if (!event.poaps) return // Skip if no POAPs
+
       event.poaps.forEach((poap: any) => {
+        if (!poap.holders) return // Skip if no holders
+
         poap.holders.forEach((holder: any) => {
-          if (!acc[holder.walletAddress]) {
-            acc[holder.walletAddress] = {
-              count: 0,
-              events: []
-            }
+          const current = collectors.get(holder.walletAddress) || {
+            count: 0,
+            events: new Set<string>(),
+            eventDetails: []
           }
-          acc[holder.walletAddress].count++
-          if (!acc[holder.walletAddress].events.find((e: any) => e.name === event.name)) {
-            acc[holder.walletAddress].events.push({
+
+          current.count++
+
+          if (!current.events.has(event.id)) {
+            current.events.add(event.id)
+            current.eventDetails.push({
               name: event.name,
               month: event.month,
               year: event.year
             })
           }
+
+          collectors.set(holder.walletAddress, current)
         })
       })
-      return acc
-    }, {})
+    })
 
-    return Object.entries(collectors)
-      .sort(([, a], [, b]) => (b as any).count - (a as any).count)
-      .slice(0, 10)
-      .map(([wallet, data], index) => ({
+    // Convert to array and sort by count
+    return Array.from(collectors.entries())
+      .map(([wallet, data]) => ({
         wallet,
         count: data.count,
-        rank: index + 1,
-        events: data.events
+        events: Array.from(data.eventDetails)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map((collector, index) => ({
+        ...collector,
+        rank: index + 1
       }))
   }
 }

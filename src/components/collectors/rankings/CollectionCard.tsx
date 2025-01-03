@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 import { EventsList } from './EventsList'
 import { TopCollectors } from './TopCollectors'
-import type { CollectionGroup } from '@/services/rankings'
+import type { CollectionGroup } from '@/types/rankings'
 
 interface CollectionCardProps {
   collection: CollectionGroup
