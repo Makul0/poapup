@@ -14,10 +14,10 @@ const nextConfig = {
   // Update experimental features configuration
   experimental: {
     // Update serverActions to use the new syntax
-    serverActions: {
-      bodySizeLimit: '2mb',
-      allowedOrigins: ['localhost:3000']
-    },
+    // serverActions: {
+    //   bodySizeLimit: '2mb',
+    //   allowedOrigins: ['localhost:3000']
+    // },
     turbo: {
       rules: {},
     },

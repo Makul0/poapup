@@ -1,380 +1,329 @@
 // src/services/collections.ts
+
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { Helius } from 'helius-sdk'
 import { Cache } from '@/lib/cache'
-import { env } from '@/lib/env'
-import type { Collection, Event, Poap, CreatorAccess, PoapHolder, Prisma } from '@prisma/client'
+import type { 
+  Collection, 
+  CollectionWithRelations,
+  CollectionInput,
+  CollectionFilters,
+  CollectionAnalytics,
+  Event,
+  EventType,
+  CreatorRole
+} from '@/types/rankings'
 
-// Initialize Helius SDK and cache
-const helius = new Helius(env.HELIUS_API_KEY)
-const cache = new Cache('collections:')
-
-// Types for collection management
-interface CreateCollectionInput {
-  name: string
-  description?: string
-  mintAuthority: string  // Solana public key
-  isOfficial?: boolean
-  website?: string
-  twitter?: string
-  discord?: string
-  logo?: string        // IPFS/Arweave URI
+/**
+ * Cache configuration for different data types with appropriate TTLs
+ */
+const CACHE_PREFIX = 'collections:'
+const CACHE_TTL = {
+  COLLECTION: 3600,      // 1 hour for basic collection data
+  LIST: 1800,           // 30 minutes for collection lists
+  ANALYTICS: 7200,      // 2 hours for analytics data
+  RELATIONS: 900        // 15 minutes for related data
 }
 
-interface UpdateCollectionInput extends Partial<CreateCollectionInput> {
-  id: string
-}
+export class CollectionsService {
+  private static cache = new Cache(CACHE_PREFIX)
 
-interface CreateEventInput {
-  name: string
-  description?: string
-  startDate: Date
-  endDate: Date
-  eventType?: 'VIRTUAL' | 'IN_PERSON' | 'HYBRID'
-  location?: string
-  maxSupply?: number
-  website?: string
-  coverImage?: string
-}
-
-interface SyncOptions {
-  forceUpdate?: boolean
-  updateStats?: boolean
-}
-
-export class CollectionService {
   /**
-   * Creates a new POAP collection with initial creator access
+   * Creates a new collection with validated input and proper defaults
    */
-  static async createCollection(
-    input: CreateCollectionInput,
-    creatorWallet: string
-  ): Promise<Collection> {
-    return prisma.$transaction(async (tx) => {
-      // Create the collection
-      const collection = await tx.collection.create({
+  public static async create(data: CollectionInput): Promise<Collection> {
+    try {
+      // Create collection with all necessary fields and defaults
+      const collection = await prisma.collection.create({
         data: {
-          ...input,
-          isActive: true
-        }
-      })
-
-      // Grant admin access to creator
-      await tx.creatorAccess.create({
-        data: {
-          collectionId: collection.id,
-          walletAddress: creatorWallet,
-          role: 'ADMIN',
-          isActive: true,
-          canCreateEvents: true,
-          canMintPoaps: true,
-          canEditDetails: true
-        }
-      })
-
-      // Clear cache
-      await cache.delete(`collection:${input.mintAuthority}`)
-
-      return collection
-    })
-  }
-
-  /**
-   * Updates an existing collection's details after checking permissions
-   */
-  static async updateCollection(
-    input: UpdateCollectionInput,
-    updaterWallet: string
-  ): Promise<Collection> {
-    // Check permissions
-    const hasAccess = await this.checkAccess(input.id, updaterWallet, 'MODERATOR')
-    if (!hasAccess) {
-      throw new Error('Not authorized to update collection')
-    }
-
-    // Update collection
-    const collection = await prisma.collection.update({
-      where: { id: input.id },
-      data: {
-        ...input,
-        updatedAt: new Date()
-      }
-    })
-
-    // Clear cache
-    await cache.delete(`collection:${collection.mintAuthority}`)
-
-    return collection
-  }
-
-  /**
-   * Creates a new event in a collection after checking permissions
-   */
-  static async createEvent(
-    collectionId: string,
-    data: CreateEventInput,
-    creatorWallet: string
-  ): Promise<Event> {
-    // Check permissions
-    const access = await this.getCreatorAccess(collectionId, creatorWallet)
-    if (!access?.canCreateEvents) {
-      throw new Error('Not authorized to create events')
-    }
-
-    return prisma.event.create({
-      data: {
-        ...data,
-        collection: { connect: { id: collectionId } }
-      }
-    })
-  }
-
-  /**
-   * Mints a new POAP to an event after checking permissions
-   */
-  static async mintPoap(
-    eventId: string,
-    data: Omit<Prisma.PoapCreateInput, 'event' | 'collection'>,
-    minterWallet: string
-  ): Promise<Poap> {
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: { collection: true }
-    })
-
-    if (!event) throw new Error('Event not found')
-
-    // Check permissions
-    const access = await this.getCreatorAccess(event.collectionId, minterWallet)
-    if (!access?.canMintPoaps) {
-      throw new Error('Not authorized to mint POAPs')
-    }
-
-    // Check event is active and not closed
-    if (!event.isActive || event.isClosed) {
-      throw new Error('Event is not active or has been closed')
-    }
-
-    // Check max supply if set
-    if (event.maxSupply) {
-      const currentSupply = await prisma.poap.count({
-        where: { eventId }
-      })
-      if (currentSupply >= event.maxSupply) {
-        throw new Error('Event has reached maximum supply')
-      }
-    }
-
-    // Create POAP with holder
-    return prisma.poap.create({
-      data: {
-        ...data,
-        event: { connect: { id: eventId } },
-        collection: { connect: { id: event.collectionId } }
-      }
-    })
-  }
-
-  /**
-   * Syncs POAPs from Helius for a collection
-   */
-  static async syncPoaps(
-    collectionId: string,
-    options: { forceUpdate?: boolean } = {}
-  ) {
-    const collection = await prisma.collection.findUnique({
-      where: { id: collectionId }
-    })
-
-    if (!collection) throw new Error('Collection not found')
-
-    // Check cache unless force update
-    if (!options.forceUpdate) {
-      const cached = await cache.get(`collection:poaps:${collectionId}`)
-      if (cached) return JSON.parse(cached)
-    }
-
-    // Fetch assets from Helius
-    const assets = await helius.rpc.getAssetsByGroup({
-      groupKey: "collection",
-      groupValue: collection.mintAuthority,
-      page: 1,
-      limit: 1000 // Max per request
-    })
-
-    if (!assets?.items?.length) return []
-
-    // Process assets in batches of 100
-    const batchSize = 100
-    const poaps: Poap[] = []
-
-    for (let i = 0; i < assets.items.length; i += batchSize) {
-      const batch = assets.items.slice(i, i + batchSize)
-      
-      // Create/update POAPs and events in transaction
-      const results = await prisma.$transaction(
-        batch.map(asset => {
-          const eventDate = new Date(
-            asset.content?.metadata?.eventDate || 
-            asset.mintedDate
-          )
-
-          // Find or create event for this month
-          return prisma.event.upsert({
-            where: {
-              id: `${collection.id}:${eventDate.getMonth()}:${eventDate.getFullYear()}`
-            },
-            create: {
-              name: `${collection.name} - ${eventDate.toLocaleString('default', {
-                month: 'long',
-                year: 'numeric'
-              })}`,
-              startDate: eventDate,
-              endDate: new Date(eventDate.getTime() + 24 * 60 * 60 * 1000),
-              collection: { connect: { id: collection.id } }
-            },
-            update: {},
-          }).then(event => {
-            // Create/update POAP and holder
-            return prisma.poap.upsert({
-              where: { assetId: asset.id },
-              create: {
-                name: asset.content.metadata.name,
-                description: asset.content.metadata.description,
-                image: asset.content.files[0]?.uri || '',
-                assetId: asset.id,
-                mintAddress: asset.id,
-                collection: { connect: { id: collection.id } },
-                event: { connect: { id: event.id } },
-                holders: {
-                  create: {
-                    walletAddress: asset.ownership.owner,
-                    acquiredAt: new Date(asset.mintedDate)
-                  }
-                }
-              },
-              update: {
-                holders: {
-                  upsert: {
-                    where: {
-                      poapId_walletAddress: {
-                        poapId: asset.id,
-                        walletAddress: asset.ownership.owner
-                      }
-                    },
-                    create: {
-                      walletAddress: asset.ownership.owner,
-                      acquiredAt: new Date(asset.mintedDate)
-                    },
-                    update: {}
-                  }
+          name: data.name,
+          description: data.description,
+          symbol: data.symbol,
+          website: data.website,
+          twitter: data.twitter,
+          discord: data.discord,
+          logo: data.logo,
+          isOfficial: data.isOfficial ?? false,
+          isActive: data.isActive ?? true,
+          isVerified: false,
+          totalPoaps: 0,
+          uniqueHolders: 0,
+          merkleTree: data.merkleTree,
+          maxDepth: data.maxDepth,
+          maxBufferSize: data.maxBufferSize,
+          canopyDepth: data.canopyDepth
+        },
+        // Include relationships for complete data
+        include: {
+          events: {
+            include: {
+              poaps: {
+                include: {
+                  holders: true
                 }
               }
-            })
-          })
-        })
-      )
-
-      poaps.push(...results)
-    }
-
-    // Cache results for 5 minutes
-    await cache.set(
-      `collection:poaps:${collectionId}`, 
-      JSON.stringify(poaps),
-      300
-    )
-
-    return poaps
-  }
-
-  /**
-   * Get creator access details for a collection
-   */
-  private static async getCreatorAccess(
-    collectionId: string,
-    walletAddress: string
-  ): Promise<CreatorAccess | null> {
-    return prisma.creatorAccess.findUnique({
-      where: {
-        collectionId_walletAddress: {
-          collectionId,
-          walletAddress
-        }
-      }
-    })
-  }
-
-  /**
-   * Check if a wallet has specific access to a collection
-   */
-  static async checkAccess(
-    collectionId: string, 
-    walletAddress: string,
-    requiredRole: Prisma.CreatorRole = 'CREATOR'
-  ): Promise<boolean> {
-    const access = await this.getCreatorAccess(collectionId, walletAddress)
-    if (!access || !access.isActive) return false
-    
-    // ADMIN role has all permissions
-    if (access.role === 'ADMIN') return true
-
-    // Check if role meets required level
-    const roles: Prisma.CreatorRole[] = ['CREATOR', 'MODERATOR', 'ADMIN']
-    const requiredLevel = roles.indexOf(requiredRole)
-    const actualLevel = roles.indexOf(access.role)
-    
-    return actualLevel >= requiredLevel
-  }
-
-  /**
-   * Get collection statistics
-   */
-  static async getCollectionStats(collectionId: string) {
-    const cacheKey = `collection:stats:${collectionId}`
-
-    return cache.getOrSet(cacheKey, async () => {
-      const collection = await prisma.collection.findUnique({
-        where: { id: collectionId },
-        include: {
-          events: true,
+            }
+          },
           poaps: {
             include: {
               holders: true
             }
-          }
+          },
+          creatorAccess: true
         }
       })
 
-      if (!collection) throw new Error('Collection not found')
+      // Clear any existing caches for this collection
+      await this.clearCollectionCaches(collection.id)
 
-      // Calculate unique holders
-      const uniqueHolders = new Set(
-        collection.poaps.flatMap(p => 
-          p.holders.map(h => h.walletAddress)
-        )
+      return this.transformCollectionResponse(collection)
+    } catch (error) {
+      console.error('Error creating collection:', error)
+      throw new Error('Failed to create collection')
+    }
+  }
+
+  /**
+   * Updates an existing collection with partial data
+   */
+  public static async update(
+    id: string, 
+    data: Partial<CollectionInput>
+  ): Promise<Collection> {
+    try {
+      const collection = await prisma.collection.update({
+        where: { id },
+        data: {
+          name: data.name,
+          description: data.description,
+          symbol: data.symbol,
+          website: data.website,
+          twitter: data.twitter,
+          discord: data.discord,
+          logo: data.logo,
+          isOfficial: data.isOfficial,
+          isActive: data.isActive,
+          merkleTree: data.merkleTree,
+          maxDepth: data.maxDepth,
+          maxBufferSize: data.maxBufferSize,
+          canopyDepth: data.canopyDepth
+        },
+        include: {
+          events: {
+            include: {
+              poaps: {
+                include: {
+                  holders: true
+                }
+              }
+            }
+          },
+          poaps: {
+            include: {
+              holders: true
+            }
+          },
+          creatorAccess: true
+        }
+      })
+
+      await this.clearCollectionCaches(collection.id)
+
+      return this.transformCollectionResponse(collection)
+    } catch (error) {
+      console.error('Error updating collection:', error)
+      throw new Error('Failed to update collection')
+    }
+  }
+
+  /**
+   * Retrieves a collection by ID with optional related data
+   */
+  public static async getById(
+    id: string,
+    includeRelations = false
+  ): Promise<Collection | CollectionWithRelations | null> {
+    try {
+      const cacheKey = `collection:${id}${includeRelations ? ':relations' : ''}`
+      const cached = await this.cache.get(cacheKey)
+      if (cached) return cached as Collection | CollectionWithRelations
+
+      const collection = await prisma.collection.findUnique({
+        where: { id },
+        include: includeRelations ? {
+          events: {
+            include: {
+              poaps: {
+                include: {
+                  holders: true
+                }
+              }
+            }
+          },
+          poaps: {
+            include: {
+              holders: true
+            }
+          },
+          creatorAccess: true
+        } : {
+          events: true,
+          poaps: true
+        }
+      })
+
+      if (!collection) return null
+
+      const transformed = this.transformCollectionResponse(collection)
+      await this.cache.set(
+        cacheKey, 
+        transformed, 
+        includeRelations ? CACHE_TTL.RELATIONS : CACHE_TTL.COLLECTION
       )
 
-      // Calculate most active month
-      const monthCounts = collection.events.reduce((counts, event) => {
-        const month = event.startDate.toLocaleString('default', {
-          month: 'long',
-          year: 'numeric'
+      return transformed
+    } catch (error) {
+      console.error('Error fetching collection:', error)
+      throw new Error('Failed to fetch collection')
+    }
+  }
+
+  /**
+   * Retrieves all collections with filters and pagination
+   */
+  public static async getAll(
+    filters?: CollectionFilters,
+    page = 1,
+    limit = 20
+  ): Promise<{ items: Collection[]; total: number }> {
+    try {
+      const cacheKey = `collections:${JSON.stringify(filters)}:${page}:${limit}`
+      const cached = await this.cache.get(cacheKey)
+      if (cached) return cached as { items: Collection[]; total: number }
+
+      const where: Prisma.CollectionWhereInput = {
+        isOfficial: filters?.isOfficial,
+        isActive: filters?.isActive,
+        ...(filters?.search && {
+          OR: [
+            {
+              name: {
+                contains: filters.search,
+                mode: 'insensitive'
+              }
+            },
+            {
+              description: {
+                contains: filters.search,
+                mode: 'insensitive'
+              }
+            }
+          ]
         })
-        counts[month] = (counts[month] || 0) + 1
-        return counts
-      }, {} as Record<string, number>)
-
-      const mostActiveMonth = Object.entries(monthCounts)
-        .sort(([,a], [,b]) => b - a)
-        [0]?.[0]
-
-      return {
-        totalPoaps: collection.poaps.length,
-        uniqueHolders: uniqueHolders.size,
-        uniqueEvents: collection.events.length,
-        mostActiveMonth
       }
-    }, 300) // Cache for 5 minutes
+
+      const [items, total] = await Promise.all([
+        prisma.collection.findMany({
+          where,
+          orderBy: { name: 'asc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            events: {
+              include: {
+                poaps: true
+              }
+            },
+            poaps: true
+          }
+        }),
+        prisma.collection.count({ where })
+      ])
+
+      const transformedItems = items.map(item => 
+        this.transformCollectionResponse(item)
+      )
+
+      const result = { items: transformedItems, total }
+      await this.cache.set(cacheKey, result, CACHE_TTL.LIST)
+
+      return result
+    } catch (error) {
+      console.error('Error fetching collections:', error)
+      throw new Error('Failed to fetch collections')
+    }
+  }
+
+  /**
+   * Helper method to transform Prisma response to our domain types
+   */
+  private static transformCollectionResponse(
+    prismaCollection: any
+  ): Collection {
+    return {
+      id: prismaCollection.id,
+      createdAt: prismaCollection.createdAt,
+      updatedAt: prismaCollection.updatedAt,
+      name: prismaCollection.name,
+      description: prismaCollection.description,
+      symbol: prismaCollection.symbol,
+      website: prismaCollection.website,
+      twitter: prismaCollection.twitter,
+      discord: prismaCollection.discord,
+      logo: prismaCollection.logo,
+      isOfficial: prismaCollection.isOfficial,
+      isActive: prismaCollection.isActive,
+      isVerified: prismaCollection.isVerified,
+      totalPoaps: prismaCollection.totalPoaps,
+      uniqueHolders: prismaCollection.uniqueHolders,
+      lastEventDate: prismaCollection.lastEventDate,
+      merkleTree: prismaCollection.merkleTree,
+      maxDepth: prismaCollection.maxDepth,
+      maxBufferSize: prismaCollection.maxBufferSize,
+      canopyDepth: prismaCollection.canopyDepth,
+      events: prismaCollection.events?.map(this.transformEventResponse) ?? [],
+      poaps: prismaCollection.poaps ?? []
+    }
+  }
+
+  /**
+   * Helper method to transform Event responses
+   */
+  private static transformEventResponse(event: any): Event {
+    return {
+      id: event.id,
+      createdAt: event.createdAt,
+      updatedAt: event.updatedAt,
+      name: event.name,
+      description: event.description,
+      eventType: event.eventType as EventType,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      month: event.month,
+      year: event.year,
+      location: event.location,
+      maxSupply: event.maxSupply,
+      mintPrice: event.mintPrice,
+      mintAuthority: event.mintAuthority,
+      website: event.website,
+      coverImage: event.coverImage,
+      isActive: event.isActive,
+      isClosed: event.isClosed,
+      collectionId: event.collectionId,
+      poaps: event.poaps ?? []
+    }
+  }
+
+  /**
+   * Helper method to clear collection-related caches
+   */
+  private static async clearCollectionCaches(id: string): Promise<void> {
+    const keys = [
+      `collection:${id}`,
+      `collection:${id}:relations`,
+      `collection:${id}:analytics`,
+      'collections:*'
+    ]
+    await Promise.all(keys.map(key => this.cache.delete(key)))
   }
 }

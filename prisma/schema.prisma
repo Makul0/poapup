@@ -13,29 +13,40 @@ model Collection {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Collection details
-  name          String
-  description   String?
-  isOfficial    Boolean @default(false)
+  // Basic collection information
+  name        String
+  description String?
+  symbol      String?  // For on-chain identification
   
   // Collection metadata
-  website       String?
-  twitter       String?
-  discord       String?
-  logo          String?
-
-  // Collection stats
-  totalPoaps     Int      @default(0)
-  uniqueHolders  Int      @default(0)
-  lastEventDate  DateTime?
-  isActive       Boolean  @default(true)
+  website     String?
+  twitter     String?
+  discord     String?
+  logo        String?  // IPFS/Arweave URI
+  
+  // Collection configuration
+  isOfficial  Boolean @default(false)
+  isActive    Boolean @default(true)
+  isVerified  Boolean @default(false)
+  
+  // Collection statistics
+  totalPoaps      Int      @default(0)
+  uniqueHolders   Int      @default(0)
+  lastEventDate   DateTime?
+  
+  // Compression configuration
+  merkleTree     String?   // Merkle tree address for compressed NFTs
+  maxDepth       Int?      // Tree depth for compression
+  maxBufferSize  Int?      // Buffer size for concurrent operations
+  canopyDepth    Int?      // Canopy depth for optimizations
 
   // Relationships
-  events        Event[]        // Events in this collection
-  creatorAccess CreatorAccess[]
+  events         Event[]
+  poaps          Poap[]
+  creatorAccess  CreatorAccess[]
 
   @@index([name])
-  Poap Poap[]
+  @@index([isOfficial, isActive])
 }
 
 model Event {
@@ -46,39 +57,41 @@ model Event {
   // Event details
   name        String
   description String?
-  month       String      // Store month name explicitly
-  year        Int         // Store year explicitly
-  eventType   EventType   @default(VIRTUAL)
-  location    String?
-  maxSupply   Int?
-
-  // Event identifiers
-  mintAuthority  String    // The mint authority for this specific event
-  collectionAddr String    // The collection address for this specific event
+  eventType   EventType @default(VIRTUAL)
   
+  // Event timing
   startDate   DateTime
   endDate     DateTime
+  month       String    // Stored explicitly for easier querying
+  year        Int      // Stored explicitly for easier querying
+  
+  // Event configuration
+  location    String?
+  maxSupply   Int?
+  mintPrice   Float?   // In SOL
+  
+  // Event identifiers
+  mintAuthority String  // Authority allowed to mint POAPs
   
   // Event metadata
   website     String?
-  coverImage  String?
-
-  // Event status
-  isActive    Boolean  @default(true)
-  isClosed    Boolean  @default(false)
+  coverImage  String?  // IPFS/Arweave URI
   
-  // Relationships
-  collection  Collection @relation(fields: [collectionId], references: [id])
-  collectionId String
-  poaps       Poap[]
+  // Event status
+  isActive    Boolean @default(true)
+  isClosed    Boolean @default(false)
 
-  @@index([mintAuthority])
-  @@index([collectionAddr])
+  // Relationships
+  collection   Collection @relation(fields: [collectionId], references: [id])
+  collectionId String
+  poaps        Poap[]
+
   @@index([month, year])
+  @@index([startDate, endDate])
   @@index([collectionId])
+  @@index([mintAuthority])
 }
 
-// POAP model represents individual POAPs
 model Poap {
   id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
@@ -88,62 +101,73 @@ model Poap {
   name        String
   description String?
   image       String   // IPFS/Arweave URI
-  assetId     String   @unique // Solana Asset ID
-  mintAddress String   @unique // Solana mint address
-
+  
+  // On-chain identifiers
+  assetId     String  @unique  // Solana Asset ID (for compressed NFTs)
+  mintAddress String? @unique  // Optional mint address (for decompressed NFTs)
+  
+  // POAP metadata
+  attributes  Json?   // Additional metadata attributes
+  
   // POAP status
-  isBurned    Boolean  @default(false)
-  isFrozen    Boolean  @default(false)
+  isBurned    Boolean @default(false)
+  isFrozen    Boolean @default(false)
+  isCompressed Boolean @default(true)
 
   // Relationships
-  collection  Collection @relation(fields: [collectionId], references: [id])
+  collection   Collection @relation(fields: [collectionId], references: [id])
   collectionId String
-  event       Event      @relation(fields: [eventId], references: [id])
-  eventId     String
-  holders     PoapHolder[]
+  event        Event     @relation(fields: [eventId], references: [id])
+  eventId      String
+  holders      PoapHolder[]
 
   @@index([collectionId])
   @@index([eventId])
   @@index([assetId])
 }
 
-// PoapHolder tracks POAP ownership
 model PoapHolder {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // Holder details
   walletAddress String
   acquiredAt    DateTime @default(now())
+  
+  // Transfer details
+  transferredAt DateTime?
+  transferredTo String?
 
   // Relationships
-  poap         Poap     @relation(fields: [poapId], references: [id])
-  poapId       String
+  poap          Poap    @relation(fields: [poapId], references: [id])
+  poapId        String
 
   @@unique([poapId, walletAddress])
   @@index([walletAddress])
 }
 
-// CreatorAccess manages collection creator permissions
 model CreatorAccess {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
-  // Creator details
+  // Creator identification
   walletAddress String
-  role         CreatorRole @default(CREATOR)
-  isActive     Boolean     @default(true)
-
-  // Access scope
+  role          CreatorRole @default(CREATOR)
+  
+  // Access status
+  isActive      Boolean     @default(true)
+  
+  // Permissions
   canCreateEvents Boolean @default(true)
   canMintPoaps   Boolean @default(true)
   canEditDetails Boolean  @default(false)
+  canVerify     Boolean  @default(false)
 
   // Relationships
-  collection   Collection @relation(fields: [collectionId], references: [id])
-  collectionId String
+  collection    Collection @relation(fields: [collectionId], references: [id])
+  collectionId  String
 
   @@unique([collectionId, walletAddress])
 }
