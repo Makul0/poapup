@@ -8,21 +8,26 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { POAPMetadata } from '@/services/poap'
 import { useUser } from '@/contexts/UserContext'
-import { ConnectWalletButton } from '@/components/common/ConnectWalletButton'
 import { useAuth } from '@/contexts/AuthContext'
+import { ConnectWalletButton } from '@/components/common/ConnectWalletButton'
 
+// Define the CreateCollectionPage component
 export default function CreateCollectionPage() {
+  // Initialize necessary hooks
   const router = useRouter()
   const { publicKey, connected } = useWallet()
-  const { user, isLoading } = useUser()
+  const { user, isLoading: userLoading } = useUser()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const { createPOAP, validateMetadata, isCreating } = useCreatePOAP()
-  const { login } = useAuth()
 
+  // Initialize form state with default values
   const [formData, setFormData] = useState<POAPMetadata>({
     title: '',
     description: '',
     url: '',
+    // Set default start date to now
     startDate: new Date(),
+    // Set default end date to 24 hours from now
     endDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
     eventType: 'VIRTUAL',
     maxAttendees: 100,
@@ -30,9 +35,11 @@ export default function CreateCollectionPage() {
     image: null as unknown as File,
   })
 
+  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    // Validate the form data before proceeding
     const error = validateMetadata(formData)
     if (error) {
       alert(error)
@@ -40,13 +47,17 @@ export default function CreateCollectionPage() {
     }
 
     try {
+      // Create the POAP collection
       const merkleTree = await createPOAP(formData)
+      // Redirect to the collection page on success
       router.push(`/collections/${merkleTree}`)
     } catch (error) {
       console.error('Error creating POAP:', error)
     }
   }
 
+  // Loading state - show spinner while loading user or auth data
+  const isLoading = userLoading || authLoading
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -55,6 +66,7 @@ export default function CreateCollectionPage() {
     )
   }
 
+  // Step 1: Check wallet connection
   if (!connected || !publicKey) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
@@ -67,39 +79,38 @@ export default function CreateCollectionPage() {
     )
   }
 
-  if (!user?.wallet) {
+  // Step 2: Check authentication status
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <h1 className="text-2xl font-bold mb-4">Authentication Required</h1>
+        <p className="text-gray-600 mb-8">
+          Please authenticate to continue creating POAPs
+        </p>
+        <ConnectWalletButton />
+      </div>
+    )
+  }
+
+  // Step 3: Check if user profile is loaded
+  if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Connect Wallet</h1>
-          <p className="text-gray-600">Please connect your wallet to create POAPs</p>
+          <h1 className="text-2xl font-bold mb-4">Loading Profile</h1>
+          <p className="text-gray-600">Please wait while we load your profile</p>
         </div>
       </div>
     )
   }
 
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <h1 className="text-2xl font-bold mb-4">Authentication Required</h1>
-        <p className="text-gray-600 mb-8">
-          Please sign the message to authenticate
-        </p>
-        <button
-          onClick={login}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          Authenticate
-        </button>
-      </div>
-    )
-  }
-
+  // Main form render - only shown when all checks pass
   return (
     <div className="container mx-auto py-8 px-4 max-w-3xl">
       <h1 className="text-3xl font-bold mb-8">Create POAP Collection</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Image Upload Section */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             POAP Image
@@ -113,6 +124,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Title Input */}
         <div>
           <label htmlFor="title" className="block text-sm font-medium text-gray-700">
             Title *
@@ -128,6 +140,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Description Input */}
         <div>
           <label htmlFor="description" className="block text-sm font-medium text-gray-700">
             Description *
@@ -143,6 +156,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Event URL Input */}
         <div>
           <label htmlFor="url" className="block text-sm font-medium text-gray-700">
             Event URL
@@ -156,6 +170,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Date/Time Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Event Time *
@@ -168,6 +183,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Event Type Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             Event Type *
@@ -194,6 +210,7 @@ export default function CreateCollectionPage() {
           </div>
         </div>
 
+        {/* Maximum Attendees Input */}
         <div>
           <label htmlFor="maxAttendees" className="block text-sm font-medium text-gray-700">
             Maximum Attendees *
@@ -210,6 +227,7 @@ export default function CreateCollectionPage() {
           />
         </div>
 
+        {/* Collection Visibility Toggle */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             Collection Visibility
@@ -227,6 +245,7 @@ export default function CreateCollectionPage() {
           </div>
         </div>
 
+        {/* Submit Button */}
         <div className="pt-6">
           <button
             type="submit"

@@ -13,38 +13,51 @@ export function ImageUploader({ onImageUpload }: ImageUploaderProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Function to format file size in a readable way
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  }
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setError(null)
     const file = acceptedFiles[0]
 
     if (!file) return
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file')
+    // Validate file type - now including GIF
+    if (!file.type.match(/^image\/(jpeg|png|gif|jpg)$/)) {
+      setError('Please upload a valid image file (JPG, PNG, or GIF)')
       return
     }
 
-    // Validate file size (200KB)
-    if (file.size > 200 * 1024) {
-      setError('Image must be less than 200KB')
+    // Validate file size (2MB = 2 * 1024 * 1024 bytes)
+    const maxSize = 2 * 1024 * 1024 // 2MB in bytes
+    if (file.size > maxSize) {
+      setError(`Image must be less than ${formatFileSize(maxSize)}. Current size: ${formatFileSize(file.size)}`)
       return
     }
-    // Create image object to validate dimensions
-    const img = new window.Image()
+
+    // Create preview and process the image
     const objectUrl = URL.createObjectURL(file)
     
-    img.src = objectUrl
-    img.onload = () => {
-      // Check dimensions
-      if (img.width !== 500 || img.height !== 500) {
-        setError('Image must be 500x500 pixels')
-        URL.revokeObjectURL(objectUrl)
-        return
-      }
-
+    if (file.type === 'image/gif') {
+      // For GIFs, we don't check dimensions since they might be animated
       setImagePreview(objectUrl)
       onImageUpload(file)
+    } else {
+      // For static images, we still show a preview
+      const img = new window.Image()
+      img.src = objectUrl
+      img.onload = () => {
+        // Store dimensions for display
+        const dimensions = `${img.width}x${img.height}px`
+        setImagePreview(objectUrl)
+        onImageUpload(file)
+      }
     }
   }, [onImageUpload])
 
@@ -53,7 +66,8 @@ export function ImageUploader({ onImageUpload }: ImageUploaderProps) {
     accept: {
       'image/*': ['.jpeg', '.png', '.jpg', '.gif']
     },
-    maxFiles: 1
+    maxFiles: 1,
+    maxSize: 2 * 1024 * 1024 // 2MB in bytes
   })
 
   return (
@@ -69,19 +83,21 @@ export function ImageUploader({ onImageUpload }: ImageUploaderProps) {
           <input {...getInputProps()} />
           
           {imagePreview ? (
-            <div className="relative w-32 h-32 mx-auto">
+            <div className="relative w-48 h-48 mx-auto">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imagePreview}
                 alt="Preview"
-                className="w-full h-full object-cover rounded-lg"
+                className="w-full h-full object-contain rounded-lg"
               />
               <button
                 onClick={(e) => {
                   e.stopPropagation()
                   setImagePreview(null)
                 }}
-                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1.5 
+                           hover:bg-red-600 transition-colors shadow-md"
+                aria-label="Remove image"
               >
                 <svg className="w-4 h-4" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
                   <path d="M6 18L18 6M6 6l12 12"></path>
@@ -104,20 +120,24 @@ export function ImageUploader({ onImageUpload }: ImageUploaderProps) {
                   strokeLinejoin="round"
                 />
               </svg>
-              <div className="flex text-sm text-gray-600">
+              <div className="flex flex-col gap-1 items-center text-sm text-gray-600">
                 <label className="relative cursor-pointer rounded-md font-medium text-blue-600 hover:text-blue-500">
                   <span>Upload an image</span>
                 </label>
-                <p className="pl-1">or drag and drop</p>
+                <p className="text-gray-500">or drag and drop</p>
+                <p className="text-xs text-gray-500">
+                  Supported formats: JPG, PNG, GIF (up to 2MB)
+                </p>
               </div>
-              <p className="text-xs text-gray-500">500x500px, PNG or JPG up to 200KB</p>
             </>
           )}
         </div>
       </div>
 
       {error && (
-        <p className="mt-2 text-sm text-red-600">{error}</p>
+        <div className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded-md">
+          {error}
+        </div>
       )}
     </div>
   )
