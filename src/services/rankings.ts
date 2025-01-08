@@ -18,29 +18,31 @@ const RankingsFilterSchema = z.object({
 type RankingsFilter = z.infer<typeof RankingsFilterSchema>
 
 export class RankingsService {
-  /**
-   * Fetches paginated and grouped rankings data with optional filtering.
-   */
   public static async getGroupedRankings(
     page: number,
     filters?: RankingsFilter
   ): Promise<RankingsResult> {
-    const cacheKey = `page:${page}:${JSON.stringify(filters)}`
-    
     try {
-      // Try to get cached data first
+      // Validate page number
+      const validPage = Math.max(1, page)
+      const cacheKey = `page:${validPage}:${JSON.stringify(filters)}`
+      
+      // Try cache first
       const cached = await cache.get<RankingsResult>(cacheKey)
       if (cached) return cached
 
-      // Prepare where clause based on filters
-      const where = {
-        ...(filters?.collectionId ? { id: filters.collectionId } : {}),
-        ...(filters?.eventId ? {
-          events: { some: { id: filters.eventId } }
-        } : {})
+      // Build where clause more safely
+      const where: any = {}
+      if (filters?.collectionId) {
+        where.id = filters.collectionId
+      }
+      if (filters?.eventId) {
+        where.events = { 
+          some: { id: filters.eventId } 
+        }
       }
 
-      // Fetch collections with related data
+      // Fetch collections with proper error handling
       const collections = await prisma.collection.findMany({
         where,
         select: {
@@ -72,35 +74,35 @@ export class RankingsService {
           _count: {
             select: {
               events: true,
-              Poap: true // Note: matches the schema relation name
+              poaps: true // Changed from Poap to poaps to match schema
             }
           }
         },
-        skip: (page - 1) * ITEMS_PER_PAGE,
+        skip: (validPage - 1) * ITEMS_PER_PAGE,
         take: ITEMS_PER_PAGE
       })
 
-      // Transform the data to match our types
+      // Transform data with null checks
       const result: RankingsResult = {
         groups: collections.map(collection => ({
           id: collection.id,
           name: collection.name,
-          description: collection.description || '',
-          events: collection.events.map(event => ({
+          description: collection.description ?? '',
+          events: collection.events?.map(event => ({
             name: event.name,
             month: event.month,
             year: event.year,
             poaps: event.poaps?.map(poap => ({
               holder: {
-                walletAddress: poap.holders[0]?.walletAddress || ''
+                walletAddress: poap.holders[0]?.walletAddress ?? ''
               }
-            })) || []
-          })),
+            })) ?? []
+          })) ?? [],
           stats: {
-            totalPoaps: collection._count.Poap,
-            uniqueEvents: collection._count.events,
-            mostActiveMonth: this.getMostActiveMonth(collection.events),
-            topCollectors: this.calculateCollectorStats(collection.events)
+            totalPoaps: collection._count.poaps ?? 0,
+            uniqueEvents: collection._count.events ?? 0,
+            mostActiveMonth: this.getMostActiveMonth(collection.events ?? []),
+            topCollectors: this.calculateCollectorStats(collection.events ?? [])
           }
         }))
       }

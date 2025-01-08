@@ -11,31 +11,41 @@ export const metadata: Metadata = {
   description: 'Discover trending events and active participants across POAP collections.',
 }
 
-// Helper function to safely parse search parameters
 async function parseSearchParams(searchParams: { [key: string]: string | string[] | undefined }) {
-  // We need to await searchParams in Next.js 13+
-  const rawPage = await Promise.resolve(searchParams.page ?? '1')
-  const rawCollectionId = await Promise.resolve(searchParams.collectionId)
-  const rawEventId = await Promise.resolve(searchParams.eventId)
+  try {
+    const params = await Promise.all([
+      Promise.resolve(searchParams.page ?? '1'),
+      Promise.resolve(searchParams.collectionId),
+      Promise.resolve(searchParams.eventId)
+    ])
 
-  // Parse page number
-  const pageStr = Array.isArray(rawPage) ? rawPage[0] : rawPage
-  const page = Math.max(1, parseInt(pageStr, 10) || 1)
+    const [rawPage, rawCollectionId, rawEventId] = params
+    
+    const page = Math.max(1, parseInt(
+      Array.isArray(rawPage) ? rawPage[0] : rawPage, 
+      10
+    ) || 1)
 
-  // Parse collection ID
-  const collectionId = Array.isArray(rawCollectionId) 
-    ? rawCollectionId[0] 
-    : rawCollectionId
+    const collectionId = Array.isArray(rawCollectionId) 
+      ? rawCollectionId[0] 
+      : rawCollectionId
 
-  // Parse event ID
-  const eventId = Array.isArray(rawEventId) 
-    ? rawEventId[0] 
-    : rawEventId
+    const eventId = Array.isArray(rawEventId) 
+      ? rawEventId[0] 
+      : rawEventId
 
-  return {
-    page,
-    collectionId,
-    eventId
+    return {
+      page,
+      collectionId,
+      eventId
+    }
+  } catch (error) {
+    console.error('Error parsing search params:', error)
+    return {
+      page: 1,
+      collectionId: undefined,
+      eventId: undefined
+    }
   }
 }
 
